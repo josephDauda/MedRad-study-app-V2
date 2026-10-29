@@ -8,6 +8,7 @@ import com.example.data.local.AppDatabase
 import com.example.data.local.entity.UserEntity
 import com.example.data.supabase.SupabaseClient
 import com.example.data.supabase.SupabaseProfile
+import com.example.data.util.LevelClassifier
 import com.example.data.util.PasswordSecurity
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,6 +32,80 @@ class AuthRepository(private val context: Context, private val database: AppData
   private val _currentUser = MutableStateFlow<UserEntity?>(null)
   val currentUser: Flow<UserEntity?> = _currentUser.asStateFlow()
 
+  data class RemoteUserRecord(
+    val email: String,
+    val fullName: String,
+    val phone: String,
+    val level: String,
+    val department: String,
+    val faculty: String,
+    val role: String,
+    val passwordHash: String? = null,
+    val isActive: Boolean = true
+  )
+
+  suspend fun fetchRemoteUser(email: String): RemoteUserRecord? {
+    val trimmedEmail = email.trim().lowercase()
+
+    // 1. Check app_config student_user_<email> (authoritative cloud database store)
+    try {
+      val configRes = supabaseClient.restGet("app_config?key=eq.student_user_$trimmedEmail&select=*")
+      if (configRes.isSuccess) {
+        val json = configRes.getOrNull() ?: "[]"
+        val array = JSONArray(json)
+        if (array.length() > 0) {
+          val obj = array.getJSONObject(0)
+          val valStr = obj.optString("value", "")
+          if (valStr.isNotBlank() && valStr.startsWith("{")) {
+            val userObj = JSONObject(valStr)
+            val em = userObj.optString("email", trimmedEmail).lowercase()
+            return RemoteUserRecord(
+              email = em,
+              fullName = userObj.optString("full_name", userObj.optString("fullName", "Student")),
+              phone = userObj.optString("phone", userObj.optString("matric_number", "")),
+              level = userObj.optString("level", "100 Level"),
+              department = userObj.optString("department", "Medical Radiography"),
+              faculty = userObj.optString("faculty", "College of Medical Sciences"),
+              role = userObj.optString("role", userObj.optString("app_role", "STUDENT")).uppercase(),
+              passwordHash = userObj.optString("password_hash", "").ifBlank { null },
+              isActive = userObj.optBoolean("is_active", true)
+            )
+          }
+        }
+      }
+    } catch (e: Exception) {
+      Log.w(tag, "Notice checking app_config user: ${e.message}")
+    }
+
+    // 2. Check profiles table in Supabase
+    try {
+      val profRes = supabaseClient.restGet("profiles?email=eq.$trimmedEmail&select=*")
+      if (profRes.isSuccess) {
+        val json = profRes.getOrNull() ?: "[]"
+        val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, SupabaseProfile::class.java)
+        val list = supabaseClient.moshi.adapter<List<SupabaseProfile>>(type).fromJson(json) ?: emptyList()
+        val p = list.firstOrNull()
+        if (p != null) {
+          return RemoteUserRecord(
+            email = p.email?.trim()?.lowercase() ?: trimmedEmail,
+            fullName = p.fullName ?: "Student",
+            phone = p.matricNumber ?: "",
+            level = p.level ?: "100 Level",
+            department = p.department ?: "Medical Radiography",
+            faculty = p.faculty ?: "College of Medical Sciences",
+            role = if (p.appRole?.equals("admin", ignoreCase = true) == true) "ADMIN" else "STUDENT",
+            passwordHash = null,
+            isActive = p.isActive
+          )
+        }
+      }
+    } catch (e: Exception) {
+      Log.w(tag, "Notice checking profiles: ${e.message}")
+    }
+
+    return null
+  }
+
   suspend fun checkExistingSession() {
     withContext(Dispatchers.IO) {
       val savedUserId = prefs.getLong("logged_in_user_id", -1L)
@@ -47,42 +122,35 @@ class AuthRepository(private val context: Context, private val database: AppData
           }
 
           // Authoritative Database Validation:
-          // Check if the user is still registered in Supabase database profiles
           val trimmedEmail = user.email.trim().lowercase()
           if (trimmedEmail != "admin@medrad.edu.ng") {
             try {
-              val res = supabaseClient.restGet("profiles?email=eq.$trimmedEmail&select=*")
-              if (res.isSuccess) {
-                val json = res.getOrNull() ?: "[]"
-                val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, SupabaseProfile::class.java)
-                val list = supabaseClient.moshi.adapter<List<SupabaseProfile>>(type).fromJson(json) ?: emptyList()
-                val remoteProfile = list.firstOrNull()
-                if (remoteProfile == null) {
-                  // User does not exist on the database users list (or was deleted manually on the database).
-                  // Automatically sign out the user and remove from local storage!
+              val remoteUser = fetchRemoteUser(trimmedEmail)
+              if (remoteUser == null) {
+                // Confirm if database is reachable before auto-signing out to prevent offline lockout
+                val ping = supabaseClient.restGet("app_config?select=key&limit=1")
+                if (ping.isSuccess) {
+                  // User does not exist on database (or was deleted manually)
                   Log.w(tag, "User $trimmedEmail was deleted or does not exist on database. Purging session & auto-signing out.")
                   database.userDao().deleteUser(user)
                   logout()
                   return@withContext
-                } else {
-                  // Keep local user in sync with latest database profile (level, name, role)
-                  val role = if (remoteProfile.appRole?.equals("admin", ignoreCase = true) == true) "ADMIN" else "STUDENT"
-                  val normalizedLevel = if (!remoteProfile.level.isNullOrBlank()) {
-                    com.example.data.util.LevelClassifier.normalizeLevel(remoteProfile.level)
-                  } else user.level
-                  val updated = user.copy(
-                    fullName = remoteProfile.fullName?.ifBlank { user.fullName } ?: user.fullName,
-                    phoneNumber = remoteProfile.matricNumber ?: user.phoneNumber,
-                    department = remoteProfile.department ?: user.department,
-                    faculty = remoteProfile.faculty ?: user.faculty,
-                    level = normalizedLevel,
-                    role = role,
-                    isActive = remoteProfile.isActive,
-                    isPremium = if (role == "ADMIN") true else user.isPremium
-                  )
-                  database.userDao().updateUser(updated)
-                  _currentUser.value = updated
                 }
+              } else {
+                // Keep local user in sync with latest database profile (level, name, role)
+                val normalizedLevel = LevelClassifier.normalizeLevel(remoteUser.level)
+                val updated = user.copy(
+                  fullName = remoteUser.fullName.ifBlank { user.fullName },
+                  phoneNumber = remoteUser.phone.ifBlank { user.phoneNumber },
+                  department = remoteUser.department.ifBlank { user.department },
+                  faculty = remoteUser.faculty.ifBlank { user.faculty },
+                  level = normalizedLevel,
+                  role = remoteUser.role,
+                  isActive = remoteUser.isActive,
+                  isPremium = if (remoteUser.role == "ADMIN") true else user.isPremium
+                )
+                database.userDao().updateUser(updated)
+                _currentUser.value = updated
               }
             } catch (e: Exception) {
               Log.w(tag, "Notice checking database profile during session check: ${e.message}")
@@ -162,26 +230,11 @@ class AuthRepository(private val context: Context, private val database: AppData
         }
 
         // Authoritative Database Check:
-        // Query database to ensure user exists and hasn't been deleted
-        var remoteProfile: SupabaseProfile? = null
-        var isDatabaseReachable = false
-        try {
-          val profRes = supabaseClient.restGet("profiles?email=eq.$trimmedEmail&select=*")
-          if (profRes.isSuccess) {
-            isDatabaseReachable = true
-            val json = profRes.getOrNull() ?: "[]"
-            val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, SupabaseProfile::class.java)
-            val list = supabaseClient.moshi.adapter<List<SupabaseProfile>>(type).fromJson(json) ?: emptyList()
-            remoteProfile = list.firstOrNull()
-          }
-        } catch (e: Exception) {
-          Log.w(tag, "Database check notice: ${e.message}")
-        }
+        val remoteUser = fetchRemoteUser(trimmedEmail)
+        val isDatabaseOnline = supabaseClient.restGet("app_config?select=key&limit=1").isSuccess
 
         // If database is reachable and user does not exist in the database users list:
-        if (isDatabaseReachable && remoteProfile == null) {
-          // User was deleted manually on the database or does not exist.
-          // Delete from local cache and deny access immediately!
+        if (isDatabaseOnline && remoteUser == null) {
           if (localUser != null) {
             database.userDao().deleteUser(localUser)
           }
@@ -190,42 +243,48 @@ class AuthRepository(private val context: Context, private val database: AppData
           )
         }
 
-        // Password Authentication via Supabase Auth
-        var cloudAuthSuccess = false
-        val authResult = supabaseClient.authSignIn(trimmedEmail, password)
-        if (authResult.isSuccess) {
-          cloudAuthSuccess = true
-          val authResp = authResult.getOrThrow()
-          val authUser = authResp.user
-          val accessToken = authResp.accessToken
-          val supabaseUserId = authUser?.id ?: supabaseClient.getUserId() ?: "sb_${System.currentTimeMillis()}"
-          supabaseClient.saveSession(accessToken, authResp.refreshToken, supabaseUserId, authResp.expiresIn)
-        }
+        // Password Verification:
+        // 1. Check against remote password hash from database (highest authority across all phones)
+        val isRemotePasswordMatch = remoteUser?.passwordHash != null && PasswordSecurity.verifyPassword(password, remoteUser.passwordHash)
 
-        // Verify password against local hash if cloud auth returned invalid_grant or offline
+        // 2. Check via Supabase Auth (if account exists in auth)
+        var cloudAuthSuccess = false
+        try {
+          val authResult = supabaseClient.authSignIn(trimmedEmail, password)
+          if (authResult.isSuccess) {
+            cloudAuthSuccess = true
+            val authResp = authResult.getOrThrow()
+            supabaseClient.saveSession(authResp.accessToken, authResp.refreshToken, authResp.user?.id, authResp.expiresIn)
+          }
+        } catch (_: Exception) {}
+
+        // 3. Check against local password hash (for offline mode)
         val isLocalPasswordMatch = localUser != null && PasswordSecurity.verifyPassword(password, localUser.passwordHash)
 
-        if (!cloudAuthSuccess && !isLocalPasswordMatch) {
+        if (!isRemotePasswordMatch && !cloudAuthSuccess && !isLocalPasswordMatch) {
           return@withContext Result.failure(Exception("Incorrect password for $trimmedEmail. Please try again."))
         }
 
-        // User authenticated! Resolve profile details from remoteProfile or localUser
-        val resolvedRole = if (remoteProfile?.appRole?.equals("admin", ignoreCase = true) == true) "ADMIN" else (localUser?.role ?: "STUDENT")
-        val resolvedName = remoteProfile?.fullName?.ifBlank { localUser?.fullName ?: "Radiography Scholar" } ?: (localUser?.fullName ?: "Radiography Scholar")
-        val resolvedLevel = if (!remoteProfile?.level.isNullOrBlank()) {
-          com.example.data.util.LevelClassifier.normalizeLevel(remoteProfile?.level)
+        // User authenticated! Resolve profile details
+        val resolvedRole = remoteUser?.role ?: (localUser?.role ?: "STUDENT")
+        val resolvedName = remoteUser?.fullName?.ifBlank { localUser?.fullName ?: "Radiography Scholar" } ?: (localUser?.fullName ?: "Radiography Scholar")
+        val resolvedLevel = if (!remoteUser?.level.isNullOrBlank()) {
+          LevelClassifier.normalizeLevel(remoteUser.level)
         } else (localUser?.level ?: "100 Level")
+        val resolvedPhone = remoteUser?.phone?.ifBlank { localUser?.phoneNumber ?: "" } ?: (localUser?.phoneNumber ?: "")
+        val resolvedDept = remoteUser?.department?.ifBlank { localUser?.department ?: "Medical Radiography" } ?: (localUser?.department ?: "Medical Radiography")
+        val resolvedFaculty = remoteUser?.faculty?.ifBlank { localUser?.faculty ?: "College of Medical Sciences" } ?: (localUser?.faculty ?: "College of Medical Sciences")
 
         val userEntity = if (localUser == null) {
           val newUser = UserEntity(
             fullName = resolvedName,
             email = trimmedEmail,
-            phoneNumber = remoteProfile?.matricNumber ?: "",
+            phoneNumber = resolvedPhone,
             passwordHash = PasswordSecurity.hashPassword(password),
             role = resolvedRole,
             university = "University of Maiduguri",
-            faculty = remoteProfile?.faculty ?: "College of Medical Sciences",
-            department = remoteProfile?.department ?: "Medical Radiography",
+            faculty = resolvedFaculty,
+            department = resolvedDept,
             level = resolvedLevel,
             semester = "First Semester",
             isPremium = resolvedRole == "ADMIN"
@@ -235,10 +294,10 @@ class AuthRepository(private val context: Context, private val database: AppData
         } else {
           val updated = localUser.copy(
             fullName = resolvedName,
-            phoneNumber = remoteProfile?.matricNumber ?: localUser.phoneNumber,
+            phoneNumber = resolvedPhone,
             role = resolvedRole,
-            department = remoteProfile?.department ?: localUser.department,
-            faculty = remoteProfile?.faculty ?: localUser.faculty,
+            department = resolvedDept,
+            faculty = resolvedFaculty,
             level = resolvedLevel,
             passwordHash = PasswordSecurity.hashPassword(password),
             isPremium = if (resolvedRole == "ADMIN") true else localUser.isPremium
@@ -448,99 +507,86 @@ class AuthRepository(private val context: Context, private val database: AppData
           return@withContext Result.failure(Exception("Personal password must be at least 6 characters."))
         }
 
-        val normalizedLevel = com.example.data.util.LevelClassifier.normalizeLevel(level.trim())
+        val normalizedLevel = LevelClassifier.normalizeLevel(level.trim())
 
-        // Check if user already exists in remote Supabase profiles by email or phone to prevent duplicate accounts
-        var existingRemoteProfile: SupabaseProfile? = null
-        try {
-          val profRes = supabaseClient.restGet("profiles?email=eq.$trimmedEmail&select=*")
-          profRes.onSuccess { json ->
-            val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, SupabaseProfile::class.java)
-            val list = supabaseClient.moshi.adapter<List<SupabaseProfile>>(type).fromJson(json)
-            existingRemoteProfile = list?.firstOrNull()
-          }
-          if (existingRemoteProfile != null) {
-            return@withContext Result.failure(Exception("An account with this email ($trimmedEmail) is already registered on the database. Please sign in instead."))
-          }
-          if (trimmedPhone.isNotBlank()) {
-            val phoneRes = supabaseClient.restGet("profiles?matric_number=eq.$trimmedPhone&select=*")
-            phoneRes.onSuccess { json ->
-              val type = com.squareup.moshi.Types.newParameterizedType(List::class.java, SupabaseProfile::class.java)
-              val list = supabaseClient.moshi.adapter<List<SupabaseProfile>>(type).fromJson(json)
-              val phoneProf = list?.firstOrNull()
-              if (phoneProf != null) {
-                existingRemoteProfile = phoneProf
-              }
-            }
-            if (existingRemoteProfile != null) {
-              return@withContext Result.failure(Exception("An account with this phone number ($trimmedPhone) is already registered on the database. Please sign in instead."))
-            }
-          }
-        } catch (_: Exception) {}
-
-        // 1. Authoritative Registration in Supabase Auth (without requiring code confirmation to access)
-        val metadata = mapOf(
-          "full_name" to fullName.trim(),
-          "department" to department.trim(),
-          "faculty" to faculty.trim(),
-          "level" to normalizedLevel,
-          "phone" to trimmedPhone
-        )
-        var authUserId: String? = null
-        try {
-          val authRes = supabaseClient.authSignUp(trimmedEmail, password, metadata)
-          if (authRes.isSuccess) {
-            val authResp = authRes.getOrThrow()
-            authResp.user?.id?.let { authUserId = it }
-            supabaseClient.saveSession(authResp.accessToken, authResp.refreshToken, authUserId, authResp.expiresIn)
-          } else {
-            // If already registered in auth, sign in directly with personal password
-            val signInRes = supabaseClient.authSignIn(trimmedEmail, password)
-            if (signInRes.isSuccess) {
-              val signResp = signInRes.getOrThrow()
-              signResp.user?.id?.let { authUserId = it }
-              supabaseClient.saveSession(signResp.accessToken, signResp.refreshToken, authUserId, signResp.expiresIn)
-            }
-          }
-        } catch (e: Exception) {
-          Log.w(tag, "Supabase signup notice: ${e.message}")
+        // 1. Authoritative check: verify if user already exists on the database
+        val existingRemote = fetchRemoteUser(trimmedEmail)
+        if (existingRemote != null) {
+          return@withContext Result.failure(Exception("An account with this email ($trimmedEmail) is already registered on the database. Please sign in instead."))
         }
 
-        val resolvedUuid = authUserId
-          ?: java.util.UUID.nameUUIDFromBytes("supabase:$trimmedEmail".toByteArray()).toString()
-
         val resolvedRole = if (trimmedEmail == "admin@medrad.edu.ng") "ADMIN" else "STUDENT"
+        val passwordHash = PasswordSecurity.hashPassword(password)
 
-        // 2. Authoritatively store profile in Supabase database users list (CRITICAL REQUIREMENT)
-        val profileDto = SupabaseProfile(
-          id = resolvedUuid,
-          fullName = fullName.trim(),
-          email = trimmedEmail,
-          matricNumber = trimmedPhone.ifBlank { null },
-          level = normalizedLevel,
-          department = department.trim(),
-          faculty = faculty.trim(),
-          appRole = resolvedRole,
-          isActive = true
-        )
-        val json = supabaseClient.moshi.adapter(SupabaseProfile::class.java).toJson(profileDto)
-        val profilePostResult = supabaseClient.restPost("profiles", json, upsert = true)
-        if (profilePostResult.isFailure) {
+        // 2. Authoritatively store student account on the Supabase cloud database
+        val userJson = JSONObject().apply {
+          put("id", "student_${java.util.UUID.randomUUID()}")
+          put("full_name", fullName.trim())
+          put("email", trimmedEmail)
+          put("phone", trimmedPhone)
+          put("matric_number", trimmedPhone)
+          put("level", normalizedLevel)
+          put("department", department.trim())
+          put("faculty", faculty.trim())
+          put("university", university.trim())
+          put("role", resolvedRole)
+          put("app_role", if (resolvedRole == "ADMIN") "admin" else "student")
+          put("password_hash", passwordHash)
+          put("is_active", true)
+          put("created_at", System.currentTimeMillis())
+        }
+
+        val configPayload = JSONObject().apply {
+          put("key", "student_user_$trimmedEmail")
+          put("value", userJson.toString())
+          put("description", "Student Account: ${fullName.trim()} ($normalizedLevel)")
+        }
+
+        val configPostResult = supabaseClient.restPost("app_config", configPayload.toString(), upsert = true)
+        if (configPostResult.isFailure) {
           return@withContext Result.failure(
             Exception("Could not store account in the database. Please verify your internet connection and try again.")
           )
         }
 
-        // 3. Cache into Room for local offline accessibility
-        val existingByEmail = database.userDao().getUserByEmail(trimmedEmail)
-        val existingByPhone = if (trimmedPhone.isNotBlank()) database.userDao().getUserByPhone(trimmedPhone) else null
-        val existing = existingByEmail ?: existingByPhone
+        // 3. Optional sync to Supabase Auth and profiles table (non-blocking if rate limited)
+        try {
+          val metadata = mapOf(
+            "full_name" to fullName.trim(),
+            "department" to department.trim(),
+            "faculty" to faculty.trim(),
+            "level" to normalizedLevel,
+            "phone" to trimmedPhone
+          )
+          val authRes = supabaseClient.authSignUp(trimmedEmail, password, metadata)
+          val authUserId = authRes.getOrNull()?.user?.id
+          if (authUserId != null) {
+            val profileDto = SupabaseProfile(
+              id = authUserId,
+              fullName = fullName.trim(),
+              email = trimmedEmail,
+              matricNumber = trimmedPhone.ifBlank { null },
+              level = normalizedLevel,
+              department = department.trim(),
+              faculty = faculty.trim(),
+              appRole = if (resolvedRole == "ADMIN") "admin" else "student",
+              isActive = true
+            )
+            val pJson = supabaseClient.moshi.adapter(SupabaseProfile::class.java).toJson(profileDto)
+            supabaseClient.restPost("profiles", pJson, upsert = true)
+          }
+        } catch (e: Exception) {
+          Log.w(tag, "Optional auth signup notice (non-fatal): ${e.message}")
+        }
+
+        // 4. Cache into Room for local offline accessibility
+        val existing = database.userDao().getUserByEmail(trimmedEmail)
         val created = if (existing != null) {
           val updated = existing.copy(
             fullName = fullName.trim(),
             email = trimmedEmail,
             phoneNumber = trimmedPhone,
-            passwordHash = PasswordSecurity.hashPassword(password),
+            passwordHash = passwordHash,
             role = existing.role,
             university = university.trim(),
             faculty = faculty.trim(),
@@ -555,7 +601,7 @@ class AuthRepository(private val context: Context, private val database: AppData
             fullName = fullName.trim(),
             email = trimmedEmail,
             phoneNumber = trimmedPhone,
-            passwordHash = PasswordSecurity.hashPassword(password),
+            passwordHash = passwordHash,
             role = resolvedRole,
             university = university.trim(),
             faculty = faculty.trim(),
@@ -582,10 +628,37 @@ class AuthRepository(private val context: Context, private val database: AppData
       try {
         val trimmedEmail = email.trim().lowercase()
         val user = database.userDao().getUserByEmail(trimmedEmail)
-          ?: return@withContext Result.failure(Exception("No student found with this email address."))
-
         val newHash = PasswordSecurity.hashPassword(newPassword)
-        database.userDao().updateUser(user.copy(passwordHash = newHash))
+
+        if (user != null) {
+          database.userDao().updateUser(user.copy(passwordHash = newHash))
+        }
+
+        // Always update remote database in app_config
+        try {
+          val cfgRes = supabaseClient.restGet("app_config?key=eq.student_user_$trimmedEmail&select=*")
+          val cfgJson = cfgRes.getOrNull()
+          val studentObj = if (!cfgJson.isNullOrBlank()) {
+            try {
+              val arr = JSONArray(cfgJson)
+              if (arr.length() > 0) JSONObject(arr.getJSONObject(0).optString("value", "{}")) else JSONObject()
+            } catch (_: Exception) { JSONObject() }
+          } else JSONObject()
+
+          studentObj.put("password_hash", newHash)
+          studentObj.put("email", trimmedEmail)
+          studentObj.put("updated_at", System.currentTimeMillis())
+
+          val cfgPayload = JSONObject().apply {
+            put("key", "student_user_$trimmedEmail")
+            put("value", studentObj.toString())
+            put("description", "Student Account: ${user?.fullName ?: trimmedEmail}")
+          }
+          supabaseClient.restPost("app_config", cfgPayload.toString(), upsert = true)
+        } catch (e: Exception) {
+          Log.w(tag, "Failed to update password in app_config: ${e.message}")
+        }
+
         Result.success(true)
       } catch (e: Exception) {
         Result.failure(e)
@@ -613,8 +686,42 @@ class AuthRepository(private val context: Context, private val database: AppData
         database.userDao().updateUser(updated)
         _currentUser.value = updated
 
-        // 2. Synchronize to Supabase profiles using verified remote ID and direct PATCH
+        // 2. Authoritatively synchronize to Supabase app_config student_user_<email>
         val userEmail = user.email.trim().lowercase()
+        try {
+          val cfgRes = supabaseClient.restGet("app_config?key=eq.student_user_$userEmail&select=*")
+          val cfgJson = cfgRes.getOrNull()
+          val studentObj = if (!cfgJson.isNullOrBlank()) {
+            try {
+              val arr = JSONArray(cfgJson)
+              if (arr.length() > 0) JSONObject(arr.getJSONObject(0).optString("value", "{}")) else JSONObject()
+            } catch (_: Exception) { JSONObject() }
+          } else JSONObject()
+
+          studentObj.put("full_name", updated.fullName)
+          studentObj.put("phone", updated.phoneNumber)
+          studentObj.put("matric_number", updated.phoneNumber)
+          studentObj.put("level", updated.level)
+          studentObj.put("email", userEmail)
+          studentObj.put("department", updated.department)
+          studentObj.put("faculty", updated.faculty)
+          studentObj.put("university", updated.university)
+          studentObj.put("role", updated.role)
+          studentObj.put("app_role", if (updated.role == "ADMIN") "admin" else "student")
+          studentObj.put("updated_at", System.currentTimeMillis())
+
+          val cfgPayload = JSONObject().apply {
+            put("key", "student_user_$userEmail")
+            put("value", studentObj.toString())
+            put("description", "Student Account: ${updated.fullName} (${updated.level})")
+          }
+          supabaseClient.restPost("app_config", cfgPayload.toString(), upsert = true)
+          Log.i(tag, "Profile level updated in app_config: $userEmail -> ${updated.level}")
+        } catch (e: Exception) {
+          Log.w(tag, "Failed to update student in app_config: ${e.message}")
+        }
+
+        // 3. Synchronize to Supabase profiles table using verified remote ID and direct PATCH
         try {
           var existingProfileId: String? = null
           val checkRes = supabaseClient.restGet("profiles?email=eq.$userEmail&limit=1")
@@ -677,6 +784,33 @@ class AuthRepository(private val context: Context, private val database: AppData
         val updated = user.copy(passwordHash = newHash)
         database.userDao().updateUser(updated)
         _currentUser.value = updated
+
+        // Sync new password hash to app_config
+        val userEmail = user.email.trim().lowercase()
+        try {
+          val cfgRes = supabaseClient.restGet("app_config?key=eq.student_user_$userEmail&select=*")
+          val cfgJson = cfgRes.getOrNull()
+          val studentObj = if (!cfgJson.isNullOrBlank()) {
+            try {
+              val arr = JSONArray(cfgJson)
+              if (arr.length() > 0) JSONObject(arr.getJSONObject(0).optString("value", "{}")) else JSONObject()
+            } catch (_: Exception) { JSONObject() }
+          } else JSONObject()
+
+          studentObj.put("password_hash", newHash)
+          studentObj.put("email", userEmail)
+          studentObj.put("updated_at", System.currentTimeMillis())
+
+          val cfgPayload = JSONObject().apply {
+            put("key", "student_user_$userEmail")
+            put("value", studentObj.toString())
+            put("description", "Student Account: ${user.fullName} (${user.level})")
+          }
+          supabaseClient.restPost("app_config", cfgPayload.toString(), upsert = true)
+        } catch (e: Exception) {
+          Log.w(tag, "Failed to update password hash in app_config: ${e.message}")
+        }
+
         Result.success(true)
       } catch (e: Exception) {
         Result.failure(e)

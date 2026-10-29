@@ -909,17 +909,89 @@ class CloudSyncManager(
   suspend fun pullProfiles(): Boolean = withContext(Dispatchers.IO) {
     if (!isNetworkAvailable()) return@withContext false
     try {
+      // 1. Fetch remote profiles from Supabase profiles table
       val res = supabaseClient.restGet("profiles?select=*&order=created_at.desc")
-      if (res.isFailure) {
-        Log.e(tag, "pullProfiles failed: ${res.exceptionOrNull()?.message}")
-        return@withContext false
-      }
       val json = res.getOrNull() ?: "[]"
       val type = Types.newParameterizedType(List::class.java, SupabaseProfile::class.java)
-      val list = supabaseClient.moshi.adapter<List<SupabaseProfile>>(type).fromJson(json) ?: emptyList()
+      val list = try {
+        supabaseClient.moshi.adapter<List<SupabaseProfile>>(type).fromJson(json) ?: emptyList()
+      } catch (_: Exception) {
+        emptyList()
+      }
 
-      // 1. Authoritative synchronization: Purge users from local Room who were deleted from the remote database
-      val remoteEmails = list.mapNotNull { it.email?.trim()?.lowercase() }.toSet()
+      // 2. Authoritatively fetch student accounts registered in app_config
+      val configRes = supabaseClient.restGet("app_config?key=like.student_user_*&select=*")
+      val configList = mutableListOf<SupabaseProfile>()
+      val passwordHashes = mutableMapOf<String, String>()
+      if (configRes.isSuccess) {
+        val cfgJson = configRes.getOrNull() ?: "[]"
+        try {
+          val arr = JSONArray(cfgJson)
+          for (i in 0 until arr.length()) {
+            val row = arr.getJSONObject(i)
+            val valueStr = row.optString("value", "")
+            if (valueStr.isNotBlank() && valueStr.startsWith("{")) {
+              val userObj = JSONObject(valueStr)
+              val sEmail = userObj.optString("email").trim().lowercase()
+              if (sEmail.isNotBlank()) {
+                val sFullName = userObj.optString("full_name", "Student")
+                val sPhone = userObj.optString("phone").ifBlank { userObj.optString("matric_number") }
+                val sLevel = userObj.optString("level", "100 Level")
+                val sDept = userObj.optString("department", "Medical Radiography")
+                val sFaculty = userObj.optString("faculty", "College of Medical Sciences")
+                val sAppRole = userObj.optString("app_role", userObj.optString("role", "student")).lowercase()
+                val sIsActive = userObj.optBoolean("is_active", true)
+                val sId = userObj.optString("id", FlexibleIdHelper.toUuidString(userObj.optLong("created_at", System.currentTimeMillis()), "user"))
+                val sPassHash = userObj.optString("password_hash")
+                if (sPassHash.isNotBlank()) {
+                  passwordHashes[sEmail] = sPassHash
+                }
+                configList.add(
+                  SupabaseProfile(
+                    id = sId,
+                    fullName = sFullName,
+                    email = sEmail,
+                    matricNumber = sPhone.ifBlank { null },
+                    level = sLevel,
+                    department = sDept,
+                    faculty = sFaculty,
+                    appRole = sAppRole,
+                    isActive = sIsActive
+                  )
+                )
+              }
+            }
+          }
+        } catch (e: Exception) {
+          Log.w(tag, "Error parsing app_config student records: ${e.message}")
+        }
+      }
+
+      // 3. Merge profiles and app_config records (app_config accounts take priority for student records)
+      val combinedProfiles = mutableMapOf<String, SupabaseProfile>()
+      for (p in list) {
+        p.email?.trim()?.lowercase()?.let { em -> combinedProfiles[em] = p }
+      }
+      for (cp in configList) {
+        cp.email?.trim()?.lowercase()?.let { em ->
+          val existing = combinedProfiles[em]
+          if (existing == null) {
+            combinedProfiles[em] = cp
+          } else {
+            combinedProfiles[em] = existing.copy(
+              fullName = cp.fullName?.ifBlank { existing.fullName } ?: existing.fullName,
+              level = cp.level?.ifBlank { existing.level } ?: existing.level,
+              matricNumber = cp.matricNumber?.ifBlank { existing.matricNumber } ?: existing.matricNumber,
+              department = cp.department?.ifBlank { existing.department } ?: existing.department,
+              faculty = cp.faculty?.ifBlank { existing.faculty } ?: existing.faculty,
+              isActive = cp.isActive
+            )
+          }
+        }
+      }
+
+      // 4. Authoritative synchronization: Purge users from local Room who were deleted from the remote database
+      val remoteEmails = combinedProfiles.keys
       if (remoteEmails.isNotEmpty()) {
         val localUsers = database.userDao().getAllUsersList()
         val authPrefs = context.getSharedPreferences("medrad_auth_prefs", Context.MODE_PRIVATE)
@@ -941,13 +1013,13 @@ class CloudSyncManager(
         }
       }
 
-      // 2. Insert or update users in local Room database with fresh cloud profiles
-      for (p in list) {
-        val email = p.email?.trim()?.lowercase() ?: continue
+      // 5. Insert or update users in local Room database with fresh authoritative profiles
+      for ((email, p) in combinedProfiles) {
         p.id?.let { uuidToEmail[it] = email }
         val resolvedRole = if (p.appRole?.equals("admin", ignoreCase = true) == true || email == "admin@medrad.edu.ng") "ADMIN" else "STUDENT"
         val existing = database.userDao().getUserByEmail(email)
         val normalizedLevel = if (!p.level.isNullOrBlank()) LevelClassifier.normalizeLevel(p.level) else (existing?.level ?: "100 Level")
+        val remoteHash = passwordHashes[email] ?: ""
         if (existing != null) {
           val updated = existing.copy(
             fullName = p.fullName?.ifBlank { existing.fullName } ?: existing.fullName,
@@ -957,7 +1029,8 @@ class CloudSyncManager(
             faculty = p.faculty ?: existing.faculty,
             level = normalizedLevel,
             isActive = p.isActive,
-            isPremium = if (resolvedRole == "ADMIN") true else existing.isPremium
+            isPremium = if (resolvedRole == "ADMIN") true else existing.isPremium,
+            passwordHash = if (remoteHash.isNotBlank()) remoteHash else existing.passwordHash
           )
           database.userDao().updateUser(updated)
         } else {
@@ -965,7 +1038,7 @@ class CloudSyncManager(
             fullName = p.fullName ?: "Student",
             email = email,
             phoneNumber = p.matricNumber ?: "",
-            passwordHash = "",
+            passwordHash = remoteHash,
             role = resolvedRole,
             adminRole = if (email == "admin@medrad.edu.ng") "PRIMARY" else if (resolvedRole == "ADMIN") "SECONDARY" else "",
             permissions = if (resolvedRole == "ADMIN") "ALL" else "",
@@ -2757,8 +2830,10 @@ class CloudSyncManager(
 
   suspend fun deleteProfileCloud(email: String): Result<Boolean> = withContext(Dispatchers.IO) {
     try {
-      val res = supabaseClient.restDelete("profiles?email=eq.${email.trim().lowercase()}")
-      realtimeManager?.dispatchRealtimeEvent("profiles", "DELETE", JSONObject().put("email", email))
+      val trimmedEmail = email.trim().lowercase()
+      val res = supabaseClient.restDelete("profiles?email=eq.$trimmedEmail")
+      supabaseClient.restDelete("app_config?key=eq.student_user_$trimmedEmail")
+      realtimeManager?.dispatchRealtimeEvent("profiles", "DELETE", JSONObject().put("email", trimmedEmail))
       Result.success(res.isSuccess)
     } catch (e: Exception) {
       Log.e(tag, "deleteProfileCloud error: ${e.message}", e)

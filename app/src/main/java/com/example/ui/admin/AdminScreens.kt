@@ -409,7 +409,7 @@ fun AdminDashboardScreen(
   val isPrimaryAdmin = user.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       user.adminRole.equals("PRIMARY", ignoreCase = true) ||
       (user.adminRole.isBlank() && user.assignedCourses.isBlank() && user.level.isBlank())
-  val secondaryAdminScopeLevel = if (!isPrimaryAdmin) LevelClassifier.normalizeLevel(user.assignedCourses.ifBlank { user.level }) else null
+  val secondaryAdminScopeLevel = if (!isPrimaryAdmin) LevelClassifier.normalizeLevel(user.level.ifBlank { user.assignedCourses }) else null
   val scopedAdminCourses = remember(courses, isPrimaryAdmin, secondaryAdminScopeLevel) {
     if (!isPrimaryAdmin && secondaryAdminScopeLevel != null) {
       courses.filter { LevelClassifier.matchesLevel(secondaryAdminScopeLevel, it.code) || LevelClassifier.matchesLevel(secondaryAdminScopeLevel, it.level) }
@@ -772,7 +772,7 @@ fun AdminQuestionsView(
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.isBlank()
-  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.assignedCourses?.ifBlank { currentUser?.level }) else null
+  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
 
   var selectedLevelFilter by remember { mutableStateOf("All") }
   val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
@@ -998,7 +998,7 @@ fun AdminExamsView(
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
       (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && currentUser.level.isBlank())
-  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.assignedCourses?.ifBlank { currentUser?.level }) else null
+  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
 
   val displayExams = remember(exams, isPrimary, secondaryAdminLevel, courses) {
     if (!isPrimary && secondaryAdminLevel != null) {
@@ -1129,7 +1129,7 @@ fun AdminMaterialsView(
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.isBlank()
-  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.assignedCourses?.ifBlank { currentUser?.level }) else null
+  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
 
   var selectedLevelFilter by remember { mutableStateOf("All") }
   val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
@@ -1280,7 +1280,7 @@ fun AdminLibrariesView(
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
       (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && currentUser.level.isBlank())
-  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.assignedCourses?.ifBlank { currentUser?.level }) else null
+  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
 
   val displayLibraries = remember(libraries, isPrimary, secondaryAdminLevel, courses) {
     if (!isPrimary && secondaryAdminLevel != null) {
@@ -1621,7 +1621,7 @@ fun AdminSyllabusView(
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
       (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && currentUser.level.isBlank())
-  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.assignedCourses?.ifBlank { currentUser?.level }) else null
+  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
 
   val scopedCourses = remember(courses, isPrimary, secondaryAdminLevel) {
     if (!isPrimary && secondaryAdminLevel != null) {
@@ -2093,7 +2093,7 @@ fun AdminStudentsView(
       currentUser.adminRole.isBlank()
 
   val secondaryAdminLevel = if (!isPrimary) {
-    LevelClassifier.normalizeLevel(currentUser?.assignedCourses?.ifBlank { currentUser?.level })
+    LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses })
   } else null
 
   val baseStudents = remember(students, isPrimary, secondaryAdminLevel) {
@@ -3716,7 +3716,7 @@ fun AdminLiveCloudSyncView(
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
       (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && currentUser.level.isBlank())
-  val secondaryScopeLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.assignedCourses?.ifBlank { currentUser?.level }) else null
+  val secondaryScopeLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
 
   val availableLevels = listOf("100 Level", "200 Level", "300 Level", "400 Level", "500 Level")
   var selectedPipelineLevel by remember(secondaryScopeLevel) {
