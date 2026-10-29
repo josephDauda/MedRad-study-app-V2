@@ -1,0 +1,1710 @@
+package com.example.ui.admin
+
+import android.content.Intent
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.platform.testTag
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Campaign
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.CheckCircle
+import androidx.compose.material.icons.outlined.ColorLens
+import androidx.compose.material.icons.outlined.Download
+import androidx.compose.material.icons.outlined.Feedback
+import androidx.compose.material.icons.outlined.Info
+import androidx.compose.material.icons.outlined.NotificationsActive
+import androidx.compose.material.icons.outlined.Print
+import androidx.compose.material.icons.outlined.Send
+import androidx.compose.material.icons.outlined.Share
+import androidx.compose.material.icons.outlined.Style
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.CloudDone
+import androidx.compose.material.icons.filled.CloudDownload
+import androidx.compose.material.icons.filled.CloudOff
+import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.PictureAsPdf
+import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Timer
+import androidx.compose.material.icons.filled.Visibility
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.text.style.TextAlign
+import com.example.data.util.ScoreSheetPdfGenerator
+import com.example.data.util.LevelClassifier
+import org.json.JSONObject
+import android.widget.Toast
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Card
+import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.MenuAnchorType
+import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Switch
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import com.example.data.local.entity.CourseEntity
+import com.example.data.local.entity.ExamAttemptEntity
+import com.example.data.local.entity.UserEntity
+import com.example.data.sync.AboutAppContent
+import com.example.data.sync.StudentFeedbackItem
+import com.example.ui.theme.BorderSubtle
+import com.example.ui.auth.outlinedFieldColors
+import com.example.ui.components.MedicalRadiographyEmblem
+import com.example.ui.theme.CardThemeOption
+import com.example.ui.theme.CARD_THEMES
+import com.example.ui.theme.ErrorRed
+import com.example.ui.theme.MedicalTeal
+import com.example.ui.theme.ProfessionalBlue
+import com.example.ui.theme.SuccessGreen
+import com.example.ui.theme.TextMuted
+import com.example.ui.theme.TextSecondarySlate
+import com.example.ui.theme.WarningAmber
+import com.example.ui.viewmodel.AdminViewModel
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+/**
+ * 1. Global Student Card Styling View:
+ * Admin sets the student profile card theme ONCE, and it applies automatically to all students.
+ */
+@Composable
+fun AdminGlobalCardStyleView(
+  adminViewModel: AdminViewModel
+) {
+  val currentStyle by adminViewModel.globalCardStyle.collectAsState()
+  var selectedStyle by remember(currentStyle) { mutableStateOf(currentStyle) }
+  var saveSuccessMessage by remember { mutableStateOf<String?>(null) }
+
+  val styles = CARD_THEMES
+
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .verticalScroll(rememberScrollState())
+      .padding(vertical = 12.dp)
+  ) {
+    Text(
+      text = "One-Time Global Card Styling",
+      style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+      color = MaterialTheme.colorScheme.onSurface
+    )
+    Text(
+      text = "Configure the official student profile card theme once. This updates the card design for all students across the platform in real time via Firestore.",
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    // Live Card Preview
+    val activePreviewOption = styles.find { it.id == selectedStyle } ?: styles.first()
+    Text(
+      text = "LIVE STUDENT CARD PREVIEW:",
+      style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, letterSpacing = 1.sp),
+      color = WarningAmber
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+
+    StudentProfileCardPreview(option = activePreviewOption)
+
+    Spacer(modifier = Modifier.height(20.dp))
+
+    Text(
+      text = "Select Department Card Theme:",
+      style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+      color = MaterialTheme.colorScheme.onSurface
+    )
+    Spacer(modifier = Modifier.height(8.dp))
+
+    styles.forEach { option ->
+      val isSelected = selectedStyle == option.id
+      Card(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(vertical = 6.dp)
+          .clip(RoundedCornerShape(12.dp))
+          .clickable { selectedStyle = option.id },
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        border = BorderStroke(if (isSelected) 2.dp else 1.dp, if (isSelected) option.accentColor else BorderSubtle)
+      ) {
+        Row(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(14.dp),
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Box(
+            modifier = Modifier
+              .size(36.dp)
+              .clip(CircleShape)
+              .background(Brush.linearGradient(option.gradientColors))
+              .border(1.5.dp, option.accentColor, CircleShape)
+          )
+
+          Spacer(modifier = Modifier.width(12.dp))
+
+          Column(modifier = Modifier.weight(1f)) {
+            Text(option.name, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(option.description, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+          }
+
+          if (isSelected) {
+            Icon(Icons.Outlined.CheckCircle, contentDescription = "Selected", tint = option.accentColor, modifier = Modifier.size(24.dp))
+          }
+        }
+      }
+    }
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    if (saveSuccessMessage != null) {
+      Surface(
+        color = SuccessGreen.copy(alpha = 0.15f),
+        shape = RoundedCornerShape(8.dp),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 12.dp)
+      ) {
+        Row(modifier = Modifier.padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
+          Icon(Icons.Outlined.Check, contentDescription = null, tint = SuccessGreen)
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(saveSuccessMessage!!, color = SuccessGreen, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
+        }
+      }
+    }
+
+    Button(
+      onClick = {
+        adminViewModel.setGlobalCardStyle(selectedStyle) {
+          saveSuccessMessage = "Card theme updated globally! All students now see '${activePreviewOption.name}'."
+        }
+      },
+      modifier = Modifier
+        .fillMaxWidth()
+        .height(50.dp),
+      shape = RoundedCornerShape(12.dp),
+      colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+    ) {
+      Icon(Icons.Outlined.Style, contentDescription = null, modifier = Modifier.size(18.dp))
+      Spacer(modifier = Modifier.width(8.dp))
+      Text("Apply Globally to All Students")
+    }
+
+    Spacer(modifier = Modifier.height(24.dp))
+  }
+}
+
+
+@Composable
+fun StudentProfileCardPreview(option: CardThemeOption) {
+  Card(
+    modifier = Modifier.fillMaxWidth(),
+    shape = RoundedCornerShape(16.dp),
+    colors = CardDefaults.cardColors(containerColor = option.primaryColor),
+    elevation = CardDefaults.cardElevation(defaultElevation = 4.dp),
+    border = BorderStroke(1.5.dp, option.accentColor)
+  ) {
+    Box(
+      modifier = Modifier
+        .fillMaxWidth()
+        .background(Brush.linearGradient(option.gradientColors))
+        .padding(18.dp)
+    ) {
+      Column {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Row(verticalAlignment = Alignment.CenterVertically) {
+            MedicalRadiographyEmblem(size = 40.dp, showBorder = true, borderColor = option.accentColor)
+            Spacer(modifier = Modifier.width(10.dp))
+            Column {
+              Text("MEDICAL RADIOGRAPHY", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = option.accentColor)
+              Text("University of Maiduguri", style = MaterialTheme.typography.labelSmall, color = Color.White.copy(alpha = 0.8f))
+            }
+          }
+
+          Surface(
+            shape = RoundedCornerShape(20.dp),
+            color = option.accentColor.copy(alpha = 0.2f),
+            border = BorderStroke(1.dp, option.accentColor)
+          ) {
+            Text(
+              "STUDENT ID",
+              style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold),
+              color = option.accentColor,
+              modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+            )
+          }
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        Text("Joseph Dauda", style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold), color = Color.White)
+        Text("Matric: UNIMAID/RAD/2026/042", style = MaterialTheme.typography.bodySmall, color = Color.White.copy(alpha = 0.8f))
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween
+        ) {
+          Text("Level: 300 Level", style = MaterialTheme.typography.labelMedium, color = option.accentColor)
+          Text("Faculty: Medical Sciences", style = MaterialTheme.typography.labelMedium, color = Color.White.copy(alpha = 0.85f))
+        }
+      }
+    }
+  }
+}
+
+/**
+ * 2. Push Notifications Broadcaster & Notification Management Dashboard:
+ * Admin composes, previews, and broadcasts announcements to students with live server verification,
+ * and manages (views, edits, deletes) published notifications.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AdminPushNotificationsView(
+  adminViewModel: AdminViewModel
+) {
+  var title by remember { mutableStateOf("") }
+  var message by remember { mutableStateOf("") }
+
+  val targetOptions = listOf("All Students", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level", "ANA 201")
+  var selectedTarget by remember { mutableStateOf(targetOptions.first()) }
+  var targetExpanded by remember { mutableStateOf(false) }
+
+  val categoryOptions = listOf("General Announcement", "Exam Alert", "Lecture Update", "Assignment / Practical", "Urgent Notice")
+  var selectedCategory by remember { mutableStateOf(categoryOptions.first()) }
+  var categoryExpanded by remember { mutableStateOf(false) }
+
+  val priorities = listOf("Normal", "Urgent", "Exam Alert")
+  var selectedPriority by remember { mutableStateOf(priorities.first()) }
+
+  var statusMessage by remember { mutableStateOf<String?>(null) }
+  var isStatusError by remember { mutableStateOf(false) }
+  var isSending by remember { mutableStateOf(false) }
+  var showPreviewDialog by remember { mutableStateOf(false) }
+
+  // State for Viewing / Editing / Deleting notifications
+  var viewingNotification by remember { mutableStateOf<com.example.data.local.entity.NotificationEntity?>(null) }
+  var editingNotification by remember { mutableStateOf<com.example.data.local.entity.NotificationEntity?>(null) }
+  var deletingNotificationId by remember { mutableStateOf<String?>(null) }
+
+  val adminNotifications by adminViewModel.allAdminNotifications.collectAsState()
+
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .verticalScroll(rememberScrollState())
+      .padding(vertical = 12.dp)
+  ) {
+    Text(
+      text = "Broadcast Push Notifications",
+      style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+      color = MaterialTheme.colorScheme.onSurface
+    )
+    Text(
+      text = "Send official departmental alerts, CBT exam notices, and timetable updates. Notifications are saved to Supabase and delivered to registered students.",
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    Card(
+      modifier = Modifier
+        .fillMaxWidth()
+        .testTag("admin_compose_notification_card"),
+      shape = RoundedCornerShape(14.dp),
+      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+    ) {
+      Column(modifier = Modifier.padding(18.dp)) {
+        OutlinedTextField(
+          value = title,
+          onValueChange = { title = it },
+          label = { Text("Notification Title") },
+          placeholder = { Text("e.g. ANA 201 CBT Scheduled for Friday", color = com.example.ui.theme.TextMuted) },
+          modifier = Modifier
+            .fillMaxWidth()
+            .testTag("admin_notification_title_input"),
+          shape = RoundedCornerShape(10.dp),
+          colors = outlinedFieldColors()
+        )
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+          // Category dropdown
+          ExposedDropdownMenuBox(
+            expanded = categoryExpanded,
+            onExpandedChange = { categoryExpanded = it },
+            modifier = Modifier.weight(1f)
+          ) {
+            OutlinedTextField(
+              value = selectedCategory,
+              onValueChange = {},
+              readOnly = true,
+              label = { Text("Category") },
+              trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = categoryExpanded) },
+              modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+              shape = RoundedCornerShape(10.dp),
+              colors = outlinedFieldColors()
+            )
+            ExposedDropdownMenu(
+              expanded = categoryExpanded,
+              onDismissRequest = { categoryExpanded = false }
+            ) {
+              categoryOptions.forEach { opt ->
+                DropdownMenuItem(
+                  text = { Text(opt) },
+                  onClick = {
+                    selectedCategory = opt
+                    categoryExpanded = false
+                  }
+                )
+              }
+            }
+          }
+
+          // Target audience dropdown
+          ExposedDropdownMenuBox(
+            expanded = targetExpanded,
+            onExpandedChange = { targetExpanded = it },
+            modifier = Modifier.weight(1f)
+          ) {
+            OutlinedTextField(
+              value = selectedTarget,
+              onValueChange = {},
+              readOnly = true,
+              label = { Text("Target Audience") },
+              trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = targetExpanded) },
+              modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable).fillMaxWidth(),
+              shape = RoundedCornerShape(10.dp),
+              colors = outlinedFieldColors()
+            )
+            ExposedDropdownMenu(
+              expanded = targetExpanded,
+              onDismissRequest = { targetExpanded = false }
+            ) {
+              targetOptions.forEach { opt ->
+                DropdownMenuItem(
+                  text = { Text(opt) },
+                  onClick = {
+                    selectedTarget = opt
+                    targetExpanded = false
+                  }
+                )
+              }
+            }
+          }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Priority selector
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          priorities.forEach { prio ->
+            val isSelected = selectedPriority == prio
+            OutlinedButton(
+              onClick = { selectedPriority = prio },
+              modifier = Modifier.weight(1f),
+              shape = RoundedCornerShape(8.dp),
+              colors = ButtonDefaults.outlinedButtonColors(
+                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+                contentColor = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+              ),
+              border = BorderStroke(1.dp, if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f))
+            ) {
+              Text(prio, style = MaterialTheme.typography.labelSmall)
+            }
+          }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        OutlinedTextField(
+          value = message,
+          onValueChange = { message = it },
+          label = { Text("Notification Message") },
+          placeholder = { Text("Enter detailed instruction, venue, or syllabus details...", color = com.example.ui.theme.TextMuted) },
+          modifier = Modifier
+            .fillMaxWidth()
+            .height(130.dp)
+            .testTag("admin_notification_message_input"),
+          shape = RoundedCornerShape(10.dp),
+          colors = outlinedFieldColors(),
+          maxLines = 5
+        )
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        statusMessage?.let { msg ->
+          Surface(
+            color = if (isStatusError) MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+            else if (msg.contains("Row-Level Security") || msg.contains("RLS")) com.example.ui.theme.WarningAmber.copy(alpha = 0.15f)
+            else com.example.ui.theme.SuccessGreen.copy(alpha = 0.15f),
+            shape = RoundedCornerShape(8.dp),
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(bottom = 12.dp)
+          ) {
+            Row(
+              modifier = Modifier.padding(10.dp),
+              verticalAlignment = Alignment.Top
+            ) {
+              Icon(
+                if (isStatusError) Icons.Default.Close
+                else if (msg.contains("Row-Level Security") || msg.contains("RLS")) Icons.Default.Warning
+                else Icons.Default.CloudDone,
+                contentDescription = null,
+                tint = if (isStatusError) MaterialTheme.colorScheme.error
+                else if (msg.contains("Row-Level Security") || msg.contains("RLS")) com.example.ui.theme.WarningAmber
+                else com.example.ui.theme.SuccessGreen,
+                modifier = Modifier.size(18.dp)
+              )
+              Spacer(modifier = Modifier.width(8.dp))
+              Text(
+                text = msg,
+                color = if (isStatusError) MaterialTheme.colorScheme.error
+                else if (msg.contains("Row-Level Security") || msg.contains("RLS")) com.example.ui.theme.WarningAmber
+                else com.example.ui.theme.SuccessGreen,
+                style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                lineHeight = 18.sp
+              )
+            }
+          }
+        }
+
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+          OutlinedButton(
+            onClick = { showPreviewDialog = true },
+            enabled = title.isNotBlank() && message.isNotBlank(),
+            modifier = Modifier.weight(1f).height(48.dp),
+            shape = RoundedCornerShape(10.dp)
+          ) {
+            Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Preview", style = MaterialTheme.typography.labelMedium)
+          }
+
+          Button(
+            onClick = {
+              if (title.trim().length >= 3 && message.trim().length >= 5) {
+                isSending = true
+                statusMessage = "Submitting to Supabase cloud..."
+                isStatusError = false
+                adminViewModel.broadcastNotification(
+                  title = title.trim(),
+                  message = message.trim(),
+                  category = selectedCategory,
+                  priority = selectedPriority,
+                  target = selectedTarget
+                ) { result ->
+                  isSending = false
+                  if (result.isSuccess) {
+                    val notif = result.getOrNull()
+                    val cloudConfirmed = notif?.isSyncedWithCloud == true
+                    statusMessage = if (cloudConfirmed) {
+                      "Published and confirmed live on Supabase (${adminViewModel.getSupabaseProjectId()})! Broadcasted to $selectedTarget."
+                    } else {
+                      "Saved to local database and ready for sync."
+                    }
+                    isStatusError = false
+                    title = ""
+                    message = ""
+                  } else {
+                    val errorMsg = result.exceptionOrNull()?.message ?: "Publication failed"
+                    statusMessage = errorMsg
+                    isStatusError = !errorMsg.contains("RLS") && !errorMsg.contains("Row-Level Security")
+                  }
+                }
+              }
+            },
+            modifier = Modifier
+              .weight(1.5f)
+              .height(48.dp)
+              .testTag("admin_broadcast_notification_button"),
+            shape = RoundedCornerShape(10.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            enabled = !isSending && title.trim().length >= 3 && message.trim().length >= 5
+          ) {
+            if (isSending) {
+              CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = MaterialTheme.colorScheme.onPrimary)
+              Spacer(modifier = Modifier.width(8.dp))
+              Text("Publishing...")
+            } else {
+              Icon(Icons.Outlined.NotificationsActive, contentDescription = null, modifier = Modifier.size(18.dp))
+              Spacer(modifier = Modifier.width(8.dp))
+              Text("Publish Live")
+            }
+          }
+        }
+      }
+    }
+
+    Spacer(modifier = Modifier.height(24.dp))
+
+    // Published Notifications Management Section
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Text(
+        text = "Published Notifications (${adminNotifications.size})",
+        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+        color = MaterialTheme.colorScheme.onSurface
+      )
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
+
+    if (adminNotifications.isEmpty()) {
+      Surface(
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+        shape = RoundedCornerShape(10.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        Column(
+          modifier = Modifier.padding(20.dp),
+          horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+          Icon(Icons.Outlined.NotificationsActive, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f), modifier = Modifier.size(32.dp))
+          Spacer(modifier = Modifier.height(8.dp))
+          Text(
+            text = "No notifications broadcasted yet.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+          )
+        }
+      }
+    } else {
+      adminNotifications.forEach { item ->
+        Card(
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp)
+            .testTag("admin_notif_item_${item.id}"),
+          shape = RoundedCornerShape(12.dp),
+          colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+          border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        ) {
+          Column(modifier = Modifier.padding(14.dp)) {
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+              ) {
+                Surface(
+                  color = if (item.priority.contains("Exam", ignoreCase = true)) Color(0xFFFEE2E2)
+                  else if (item.priority.contains("Urgent", ignoreCase = true)) com.example.ui.theme.WarningAmber.copy(alpha = 0.15f)
+                  else com.example.ui.theme.MedicalTeal.copy(alpha = 0.15f),
+                  shape = RoundedCornerShape(6.dp)
+                ) {
+                  Text(
+                    text = item.priority.uppercase(),
+                    color = if (item.priority.contains("Exam", ignoreCase = true)) Color(0xFFDC2626)
+                    else if (item.priority.contains("Urgent", ignoreCase = true)) com.example.ui.theme.WarningAmber
+                    else com.example.ui.theme.MedicalTeal,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                  )
+                }
+
+                Surface(
+                  color = MaterialTheme.colorScheme.surfaceVariant,
+                  shape = RoundedCornerShape(6.dp)
+                ) {
+                  Text(
+                    text = item.category,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    style = MaterialTheme.typography.labelSmall,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                  )
+                }
+              }
+
+              // Cloud sync indicator
+              Surface(
+                color = if (item.isSyncedWithCloud) com.example.ui.theme.SuccessGreen.copy(alpha = 0.12f)
+                else com.example.ui.theme.WarningAmber.copy(alpha = 0.12f),
+                shape = RoundedCornerShape(12.dp)
+              ) {
+                Row(
+                  modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                  verticalAlignment = Alignment.CenterVertically
+                ) {
+                  Icon(
+                    if (item.isSyncedWithCloud) Icons.Default.CloudDone else Icons.Default.CloudOff,
+                    contentDescription = null,
+                    tint = if (item.isSyncedWithCloud) com.example.ui.theme.SuccessGreen else com.example.ui.theme.WarningAmber,
+                    modifier = Modifier.size(12.dp)
+                  )
+                  Spacer(modifier = Modifier.width(4.dp))
+                  Text(
+                    text = if (item.isSyncedWithCloud) "CLOUD" else "ROOM",
+                    color = if (item.isSyncedWithCloud) com.example.ui.theme.SuccessGreen else com.example.ui.theme.WarningAmber,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                  )
+                }
+              }
+            }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+              text = item.title,
+              style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onSurface
+            )
+
+            Spacer(modifier = Modifier.height(4.dp))
+
+            Text(
+              text = item.message,
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              maxLines = 2,
+              lineHeight = 18.sp
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            val dateFormatted = SimpleDateFormat("dd/MM/yyyy • hh:mm a", Locale.getDefault()).format(Date(item.createdAt))
+            Text(
+              text = "Audience: ${item.target} • $dateFormatted",
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.End,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              TextButton(
+                onClick = { viewingNotification = item }
+              ) {
+                Icon(Icons.Default.Visibility, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("View", style = MaterialTheme.typography.labelSmall)
+              }
+
+              TextButton(
+                onClick = { editingNotification = item }
+              ) {
+                Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Edit", style = MaterialTheme.typography.labelSmall)
+              }
+
+              TextButton(
+                onClick = { deletingNotificationId = item.id },
+                colors = ButtonDefaults.textButtonColors(contentColor = Color(0xFFEF4444))
+              ) {
+                Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                Spacer(modifier = Modifier.width(4.dp))
+                Text("Delete", style = MaterialTheme.typography.labelSmall)
+              }
+            }
+          }
+        }
+      }
+    }
+
+    Spacer(modifier = Modifier.height(24.dp))
+  }
+
+  // 1. Preview Before Broadcast Dialog
+  if (showPreviewDialog) {
+    AlertDialog(
+      onDismissRequest = { showPreviewDialog = false },
+      title = {
+        Text("Student Notification Preview", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+      },
+      text = {
+        Column {
+          Surface(
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f),
+            shape = RoundedCornerShape(10.dp),
+            modifier = Modifier.fillMaxWidth()
+          ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+              ) {
+                Text(selectedCategory, style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.primary)
+                Text(selectedPriority.uppercase(), style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = com.example.ui.theme.WarningAmber)
+              }
+              Spacer(modifier = Modifier.height(6.dp))
+              Text(title, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+              Spacer(modifier = Modifier.height(4.dp))
+              Text(message, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+              Spacer(modifier = Modifier.height(8.dp))
+              Text("Audience: $selectedTarget • Today, now", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+          }
+        }
+      },
+      confirmButton = {
+        Button(onClick = { showPreviewDialog = false }) {
+          Text("Done")
+        }
+      }
+    )
+  }
+
+  // 2. View Notification Dialog
+  viewingNotification?.let { notif ->
+    AlertDialog(
+      onDismissRequest = { viewingNotification = null },
+      title = {
+        Text(notif.title, style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold))
+      },
+      text = {
+        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+          Text("Category: ${notif.category} • Priority: ${notif.priority}", style = MaterialTheme.typography.labelSmall, color = com.example.ui.theme.ProfessionalBlue)
+          Text("Target Audience: ${notif.target}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+          Spacer(modifier = Modifier.height(8.dp))
+          HorizontalDivider()
+          Spacer(modifier = Modifier.height(8.dp))
+          Text(notif.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+        }
+      },
+      confirmButton = {
+        Button(onClick = { viewingNotification = null }) {
+          Text("Close")
+        }
+      }
+    )
+  }
+
+  // 3. Edit Notification Dialog
+  editingNotification?.let { notif ->
+    var editTitle by remember { mutableStateOf(notif.title) }
+    var editMessage by remember { mutableStateOf(notif.message) }
+    var editCategory by remember { mutableStateOf(notif.category) }
+    var editPriority by remember { mutableStateOf(notif.priority) }
+    var editTarget by remember { mutableStateOf(notif.target) }
+    var isSavingEdit by remember { mutableStateOf(false) }
+
+    AlertDialog(
+      onDismissRequest = { editingNotification = null },
+      title = { Text("Edit Notification", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) },
+      text = {
+        Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+          OutlinedTextField(
+            value = editTitle,
+            onValueChange = { editTitle = it },
+            label = { Text("Title") },
+            modifier = Modifier.fillMaxWidth()
+          )
+          Spacer(modifier = Modifier.height(8.dp))
+          OutlinedTextField(
+            value = editMessage,
+            onValueChange = { editMessage = it },
+            label = { Text("Message") },
+            modifier = Modifier.fillMaxWidth().height(110.dp)
+          )
+        }
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            if (editTitle.isNotBlank() && editMessage.isNotBlank()) {
+              isSavingEdit = true
+              adminViewModel.editNotification(
+                id = notif.id,
+                title = editTitle.trim(),
+                message = editMessage.trim(),
+                category = editCategory,
+                priority = editPriority,
+                target = editTarget
+              ) {
+                isSavingEdit = false
+                editingNotification = null
+              }
+            }
+          },
+          enabled = !isSavingEdit && editTitle.isNotBlank() && editMessage.isNotBlank()
+        ) {
+          Text(if (isSavingEdit) "Saving..." else "Save Changes")
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { editingNotification = null }) {
+          Text("Cancel")
+        }
+      }
+    )
+  }
+
+  // 4. Delete Notification Confirmation Dialog
+  deletingNotificationId?.let { id ->
+    AlertDialog(
+      onDismissRequest = { deletingNotificationId = null },
+      title = { Text("Delete Notification?", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) },
+      text = {
+        Text("This will permanently remove the notification from both the cloud database and all student inboxes. This action cannot be undone.")
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            adminViewModel.deleteNotification(id) {
+              deletingNotificationId = null
+            }
+          },
+          colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFEF4444))
+        ) {
+          Text("Delete For Everyone")
+        }
+      },
+      dismissButton = {
+        TextButton(onClick = { deletingNotificationId = null }) {
+          Text("Cancel")
+        }
+      }
+    )
+  }
+}
+
+/**
+ * 3. Score & Results Export View:
+ * Admin views all students' test scores and exports official departmental score sheets as PDF.
+ */
+@Composable
+fun AdminScoreExportView(
+  adminViewModel: AdminViewModel,
+  currentUser: UserEntity? = null
+) {
+  val attempts by adminViewModel.allAttempts.collectAsState()
+  val courses by adminViewModel.allCourses.collectAsState()
+  val students by adminViewModel.allStudents.collectAsState()
+  val isSyncing by adminViewModel.isSyncing.collectAsState()
+  val context = LocalContext.current
+
+  val isPrimary = currentUser == null ||
+      currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
+      currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
+      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && currentUser.level.isBlank())
+  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.assignedCourses?.ifBlank { currentUser?.level }) else null
+
+  var selectedLevelFilter by remember { mutableStateOf(if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else "All Levels") }
+  val levelOptions = listOf("All Levels", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
+
+  LaunchedEffect(Unit) {
+    adminViewModel.syncAttemptsFromCloud()
+  }
+
+  val studentMap = remember(students) { students.associateBy { it.id } }
+
+  val scopedCourses = remember(courses, isPrimary, secondaryAdminLevel) {
+    if (!isPrimary && secondaryAdminLevel != null) {
+      courses.filter { LevelClassifier.matchesLevel(secondaryAdminLevel, it.code) || LevelClassifier.matchesLevel(secondaryAdminLevel, it.level) }
+    } else {
+      courses
+    }
+  }
+
+  var selectedCourseFilter by remember { mutableStateOf("All Courses") }
+  var courseFilterExpanded by remember { mutableStateOf(false) }
+
+  var selectedSessionFilter by remember { mutableStateOf("All Sessions") }
+  var sessionFilterExpanded by remember { mutableStateOf(false) }
+
+  val courseNames = listOf("All Courses") + scopedCourses.map { it.code }
+
+  val sessionNames = remember(attempts) {
+    val found = attempts.mapNotNull { att ->
+      try {
+        if (att.answersJson.startsWith("{")) {
+          JSONObject(att.answersJson).optJSONObject("_meta")?.optString("session_id")
+        } else null
+      } catch (_: Exception) { null }
+    }.filter { it.isNotBlank() }.distinct()
+    listOf("All Sessions") + if (found.isEmpty()) listOf("Session 1") else found
+  }
+
+  val selectedCourse = scopedCourses.find { it.code.equals(selectedCourseFilter, ignoreCase = true) }
+  val effectiveLevelFilter = if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else selectedLevelFilter
+  val filteredAttempts = attempts.filter { att ->
+    val studentLevel = studentMap[att.userId]?.level ?: ""
+    val matchLevel = (effectiveLevelFilter == "All Levels") ||
+                      LevelClassifier.matchesLevel(effectiveLevelFilter, att.courseTitle) ||
+                      LevelClassifier.matchesLevel(effectiveLevelFilter, att.examTitle) ||
+                      LevelClassifier.matchesLevel(effectiveLevelFilter, studentLevel)
+    val matchCourse = (selectedCourseFilter == "All Courses") ||
+                      att.courseTitle.contains(selectedCourseFilter, ignoreCase = true) ||
+                      att.examTitle.contains(selectedCourseFilter, ignoreCase = true) ||
+                      (selectedCourse != null && (att.courseTitle.contains(selectedCourse.title, ignoreCase = true) || att.examTitle.contains(selectedCourse.code, ignoreCase = true)))
+    val session = try {
+      if (att.answersJson.startsWith("{")) {
+        JSONObject(att.answersJson).optJSONObject("_meta")?.optString("session_id", "Session 1") ?: "Session 1"
+      } else "Session 1"
+    } catch (_: Exception) { "Session 1" }
+    val matchSession = (selectedSessionFilter == "All Sessions") || session.equals(selectedSessionFilter, ignoreCase = true)
+    matchLevel && matchCourse && matchSession
+  }
+
+  val totalCandidates = filteredAttempts.size
+  val passedCount = filteredAttempts.count {
+    val total = if (it.totalQuestions > 0) it.totalQuestions else 15
+    val raw = if (it.score > total) (it.score * total) / 100 else it.score
+    val pct = if (total > 0) (raw * 100) / total else 0
+    pct >= 50
+  }
+  val passRate = if (totalCandidates > 0) (passedCount * 100) / totalCandidates else 0
+
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .padding(vertical = 12.dp)
+  ) {
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Column(modifier = Modifier.weight(1f)) {
+        Text(
+          text = "Student Examination Scores & Grade Sheet",
+          style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+          color = MaterialTheme.colorScheme.onSurface
+        )
+        Text(
+          text = "Marked automatically against admin answer keys. Isolates records per course and session.",
+          style = MaterialTheme.typography.bodySmall,
+          color = MaterialTheme.colorScheme.onSurfaceVariant
+        )
+      }
+      IconButton(
+        onClick = {
+          Toast.makeText(context, "Syncing exam attempts from cloud...", Toast.LENGTH_SHORT).show()
+          adminViewModel.syncAttemptsFromCloud {
+            Toast.makeText(context, "Cloud sync complete.", Toast.LENGTH_SHORT).show()
+          }
+        }
+      ) {
+        if (isSyncing) {
+          CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+        } else {
+          Icon(Icons.Default.Refresh, contentDescription = "Sync Cloud Submissions", tint = ProfessionalBlue)
+        }
+      }
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    // Summary Statistics Cards
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+      Surface(
+        modifier = Modifier.weight(1f),
+        shape = RoundedCornerShape(10.dp),
+        color = ProfessionalBlue.copy(alpha = 0.1f),
+        border = BorderStroke(1.dp, ProfessionalBlue.copy(alpha = 0.3f))
+      ) {
+        Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+          Text("SUBMISSIONS", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp), color = ProfessionalBlue)
+          Text("$totalCandidates", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = ProfessionalBlue)
+        }
+      }
+
+      Surface(
+        modifier = Modifier.weight(1f),
+        shape = RoundedCornerShape(10.dp),
+        color = SuccessGreen.copy(alpha = 0.1f),
+        border = BorderStroke(1.dp, SuccessGreen.copy(alpha = 0.3f))
+      ) {
+        Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+          Text("PASSED", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp), color = SuccessGreen)
+          Text("$passedCount", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = SuccessGreen)
+        }
+      }
+
+      Surface(
+        modifier = Modifier.weight(1f),
+        shape = RoundedCornerShape(10.dp),
+        color = WarningAmber.copy(alpha = 0.1f),
+        border = BorderStroke(1.dp, WarningAmber.copy(alpha = 0.3f))
+      ) {
+        Column(modifier = Modifier.padding(10.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+          Text("PASS RATE", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp), color = Color(0xFFB45309))
+          Text("$passRate%", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold), color = Color(0xFFB45309))
+        }
+      }
+    }
+
+    Spacer(modifier = Modifier.height(12.dp))
+
+    // Academic Level Selector
+    if (isPrimary) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+      ) {
+        levelOptions.take(4).forEach { lvl ->
+          val isSel = selectedLevelFilter == lvl
+          Surface(
+            shape = RoundedCornerShape(8.dp),
+            color = if (isSel) ProfessionalBlue else MaterialTheme.colorScheme.surfaceVariant,
+            modifier = Modifier.clickable { selectedLevelFilter = lvl }
+          ) {
+            Text(
+              text = lvl,
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal),
+              color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+          }
+        }
+      }
+      Spacer(modifier = Modifier.height(8.dp))
+    } else {
+      Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = ProfessionalBlue.copy(alpha = 0.12f),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+      ) {
+        Text(
+          text = "Assigned Level Roster: $secondaryAdminLevel (Secondary Admin)",
+          style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+          color = ProfessionalBlue,
+          modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+        )
+      }
+    }
+
+    // Filter Controls: Course and Session
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+      // Course Filter Dropdown
+      Box(modifier = Modifier.weight(1f)) {
+        OutlinedButton(
+          onClick = { courseFilterExpanded = true },
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(8.dp)
+        ) {
+          Text(selectedCourseFilter, maxLines = 1)
+        }
+        androidx.compose.material3.DropdownMenu(
+          expanded = courseFilterExpanded,
+          onDismissRequest = { courseFilterExpanded = false }
+        ) {
+          courseNames.forEach { name ->
+            DropdownMenuItem(
+              text = { Text(name) },
+              onClick = {
+                selectedCourseFilter = name
+                courseFilterExpanded = false
+              }
+            )
+          }
+        }
+      }
+
+      // Session Filter Dropdown
+      Box(modifier = Modifier.weight(1f)) {
+        OutlinedButton(
+          onClick = { sessionFilterExpanded = true },
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(8.dp)
+        ) {
+          Text(selectedSessionFilter, maxLines = 1)
+        }
+        androidx.compose.material3.DropdownMenu(
+          expanded = sessionFilterExpanded,
+          onDismissRequest = { sessionFilterExpanded = false }
+        ) {
+          sessionNames.forEach { name ->
+            DropdownMenuItem(
+              text = { Text(name) },
+              onClick = {
+                selectedSessionFilter = name
+                sessionFilterExpanded = false
+              }
+            )
+          }
+        }
+      }
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
+
+    // Primary Action: 1-Click PDF Score Sheet Download
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+      Button(
+        onClick = {
+          val selectedCourseObj = courses.find { it.code.equals(selectedCourseFilter, ignoreCase = true) }
+          val courseCode = selectedCourseObj?.code ?: if (selectedCourseFilter != "All Courses") selectedCourseFilter else "ANA 201"
+          val courseTitle = selectedCourseObj?.title ?: "GROSS ANATOMY OF UPPER AND LOWER LIMBS"
+          val sessionName = if (selectedSessionFilter != "All Sessions") selectedSessionFilter else "General Departmental Session"
+
+          val feedbackMsg = if (filteredAttempts.isNotEmpty()) {
+            "Generating Official CBT Score Sheet for $courseCode..."
+          } else {
+            "Generating Departmental Candidate Roster for $courseCode..."
+          }
+          Toast.makeText(context, feedbackMsg, Toast.LENGTH_SHORT).show()
+
+          val pdfResult = ScoreSheetPdfGenerator.generateMockScoreSheetPdf(
+            context = context,
+            courseCode = courseCode,
+            courseTitle = courseTitle,
+            sessionName = sessionName,
+            deadlineStr = "",
+            attempts = filteredAttempts,
+            studentsMap = studentMap
+          )
+
+          pdfResult.fold(
+            onSuccess = { pdfFile ->
+              ScoreSheetPdfGenerator.openOrSharePdf(context, pdfFile, "$courseCode Departmental CBT Score Sheet")
+            },
+            onFailure = { error ->
+              Toast.makeText(context, "Failed to generate PDF: ${error.message}", Toast.LENGTH_LONG).show()
+            }
+          )
+        },
+        modifier = Modifier.weight(1.3f).height(46.dp),
+        colors = ButtonDefaults.buttonColors(containerColor = SuccessGreen),
+        shape = RoundedCornerShape(8.dp)
+      ) {
+        Icon(Icons.Default.PictureAsPdf, contentDescription = null, modifier = Modifier.size(18.dp))
+        Spacer(modifier = Modifier.width(6.dp))
+        Text("Download PDF Score Sheet", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+      }
+
+      OutlinedButton(
+        onClick = {
+          adminViewModel.exportStudentScores(if (selectedCourseFilter == "All Courses") null else selectedCourseFilter) { report ->
+            val sendIntent = Intent().apply {
+              action = Intent.ACTION_SEND
+              putExtra(Intent.EXTRA_TEXT, report)
+              putExtra(Intent.EXTRA_SUBJECT, "MedRad Department CBT Examination Results")
+              type = "text/plain"
+            }
+            context.startActivity(Intent.createChooser(sendIntent, "Share Text Summary"))
+          }
+        },
+        modifier = Modifier.weight(0.7f).height(46.dp),
+        shape = RoundedCornerShape(8.dp)
+      ) {
+        Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(16.dp))
+        Spacer(modifier = Modifier.width(4.dp))
+        Text("Share", style = MaterialTheme.typography.labelMedium)
+      }
+    }
+
+    Spacer(modifier = Modifier.height(14.dp))
+
+    if (filteredAttempts.isEmpty()) {
+      Box(
+        modifier = Modifier.fillMaxSize().padding(24.dp),
+        contentAlignment = Alignment.Center
+      ) {
+        Column(
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+          Text(
+            text = "No online test submissions recorded under $selectedCourseFilter ($selectedSessionFilter) yet.",
+            style = MaterialTheme.typography.bodyMedium,
+            color = TextMuted,
+            textAlign = TextAlign.Center
+          )
+          Text(
+            text = "You can click 'Download PDF Score Sheet' above to generate the official candidate examination roster, or pull submitted results from the cloud below.",
+            style = MaterialTheme.typography.bodySmall,
+            color = TextMuted,
+            textAlign = TextAlign.Center
+          )
+          Spacer(modifier = Modifier.height(4.dp))
+          Button(
+            onClick = {
+              Toast.makeText(context, "Syncing attempts from cloud...", Toast.LENGTH_SHORT).show()
+              adminViewModel.syncAttemptsFromCloud {
+                Toast.makeText(context, "Cloud sync complete.", Toast.LENGTH_SHORT).show()
+              }
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = ProfessionalBlue),
+            shape = RoundedCornerShape(8.dp)
+          ) {
+            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(16.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Pull Submissions From Cloud")
+          }
+        }
+      }
+    } else {
+      LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+      ) {
+        items(filteredAttempts) { att ->
+          var candidateName = ""
+          var candidateEmail = ""
+          var candidateLevel = ""
+          var candidateSession = "Session 1"
+          var timeSpentSec = att.timeSpentSeconds
+
+          try {
+            if (att.answersJson.startsWith("{")) {
+              val json = JSONObject(att.answersJson)
+              val meta = json.optJSONObject("_meta")
+              if (meta != null) {
+                candidateName = meta.optString("student_name", "")
+                candidateEmail = meta.optString("student_email", "")
+                candidateLevel = meta.optString("student_level", "")
+                candidateSession = meta.optString("session_id", "Session 1")
+                val t = meta.optInt("time_spent_seconds", -1)
+                if (t >= 0) timeSpentSec = t
+              }
+            }
+          } catch (_: Exception) {}
+
+          val localStudent = studentMap[att.userId]
+          if (candidateName.isBlank() && localStudent != null) {
+            candidateName = localStudent.fullName
+          }
+          if (candidateEmail.isBlank() && localStudent != null) {
+            candidateEmail = localStudent.email
+          }
+          if (candidateLevel.isBlank() && localStudent != null) {
+            candidateLevel = localStudent.level
+          }
+          if (candidateName.isBlank()) {
+            candidateName = "Candidate #${att.userId}"
+          }
+          if (candidateEmail.isBlank()) {
+            candidateEmail = "Student ID #${att.userId}"
+          }
+
+          val total = if (att.totalQuestions > 0) att.totalQuestions else 15
+          val rawScore = if (att.score > total) (att.score * total) / 100 else att.score
+          val percent = if (total > 0) (rawScore * 100) / total else 0
+          val passed = percent >= 50
+
+          val mins = timeSpentSec / 60
+          val secs = timeSpentSec % 60
+          val timeSpentFormatted = "${mins}m ${secs}s"
+
+          Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, BorderSubtle)
+          ) {
+            Row(
+              modifier = Modifier.fillMaxWidth().padding(14.dp),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
+            ) {
+              Column(modifier = Modifier.weight(1f)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Text(
+                    text = candidateName,
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onSurface
+                  )
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = ProfessionalBlue.copy(alpha = 0.12f)
+                  ) {
+                    Text(
+                      text = candidateSession,
+                      style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp),
+                      color = ProfessionalBlue,
+                      modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                  }
+                }
+
+                Spacer(modifier = Modifier.height(2.dp))
+
+                Text(
+                  text = "$candidateEmail • ${candidateLevel.ifBlank { "200 Level" }}",
+                  style = MaterialTheme.typography.bodySmall,
+                  color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+
+                Text(
+                  text = "${att.courseTitle} • ${att.examTitle}",
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                  color = MaterialTheme.colorScheme.primary
+                )
+
+                Spacer(modifier = Modifier.height(4.dp))
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Icon(Icons.Default.Timer, contentDescription = null, tint = TextMuted, modifier = Modifier.size(13.dp))
+                  Spacer(modifier = Modifier.width(4.dp))
+                  Text(
+                    text = "Time Spent: $timeSpentFormatted • Date: ${SimpleDateFormat("dd MMM yyyy, HH:mm", Locale.getDefault()).format(Date(att.timestamp))}",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = TextMuted
+                  )
+                }
+              }
+
+              Column(horizontalAlignment = Alignment.End) {
+                Surface(
+                  shape = RoundedCornerShape(8.dp),
+                  color = if (passed) SuccessGreen.copy(alpha = 0.15f) else ErrorRed.copy(alpha = 0.15f)
+                ) {
+                  Text(
+                    text = "$percent%",
+                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                    color = if (passed) SuccessGreen else ErrorRed,
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                  )
+                }
+                Text(
+                  text = "$rawScore/$total Marks",
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                  color = MaterialTheme.colorScheme.onSurfaceVariant,
+                  modifier = Modifier.padding(top = 2.dp)
+                )
+                Text(
+                  text = if (passed) "PASSED" else "FAILED",
+                  style = MaterialTheme.typography.labelSmall.copy(
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.sp
+                  ),
+                  color = if (passed) SuccessGreen else ErrorRed
+                )
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+
+/**
+ * 4. About App Management View:
+ * Admin updates description, version notes, department contact info, and push update notifications.
+ */
+@Composable
+fun AdminAboutAppView(
+  adminViewModel: AdminViewModel
+) {
+  val currentAbout by adminViewModel.aboutAppContent.collectAsState()
+
+  var desc by remember(currentAbout) { mutableStateOf(currentAbout.description) }
+  var versionNotes by remember(currentAbout) { mutableStateOf(currentAbout.versionNotes) }
+  var contact by remember(currentAbout) { mutableStateOf(currentAbout.departmentContact) }
+  var credits by remember(currentAbout) { mutableStateOf(currentAbout.credits) }
+  var hasUpdateNotice by remember(currentAbout) { mutableStateOf(currentAbout.hasUpdateNotice) }
+  var updateNotes by remember(currentAbout) { mutableStateOf(currentAbout.updateNotes) }
+
+  var statusMessage by remember { mutableStateOf<String?>(null) }
+  var isSaving by remember { mutableStateOf(false) }
+
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .verticalScroll(rememberScrollState())
+      .padding(vertical = 12.dp)
+  ) {
+    Text(
+      text = "About App Management",
+      style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+      color = MaterialTheme.colorScheme.onSurface
+    )
+    Text(
+      text = "Manage the 'About this app' description, faculty credits, contact info, and update notices. Changes push instantly to all students in real time.",
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    Spacer(modifier = Modifier.height(16.dp))
+
+    Card(
+      modifier = Modifier.fillMaxWidth(),
+      shape = RoundedCornerShape(14.dp),
+      colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+      border = BorderStroke(1.dp, BorderSubtle)
+    ) {
+      Column(modifier = Modifier.padding(18.dp)) {
+        OutlinedTextField(
+          value = desc,
+          onValueChange = { desc = it },
+          label = { Text("App Purpose / Overview") },
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(10.dp),
+          colors = outlinedFieldColors(),
+          minLines = 3
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        OutlinedTextField(
+          value = versionNotes,
+          onValueChange = { versionNotes = it },
+          label = { Text("Version Notes & Changelog") },
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(10.dp),
+          colors = outlinedFieldColors(),
+          minLines = 2
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        OutlinedTextField(
+          value = contact,
+          onValueChange = { contact = it },
+          label = { Text("Departmental Contact Info") },
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(10.dp),
+          colors = outlinedFieldColors(),
+          minLines = 2
+        )
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        OutlinedTextField(
+          value = credits,
+          onValueChange = { credits = it },
+          label = { Text("Faculty & Academic Credits") },
+          modifier = Modifier.fillMaxWidth(),
+          shape = RoundedCornerShape(10.dp),
+          colors = outlinedFieldColors(),
+          minLines = 2
+        )
+
+        Spacer(modifier = Modifier.height(14.dp))
+
+        // Update Notice Switch
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.SpaceBetween,
+          verticalAlignment = Alignment.CenterVertically
+        ) {
+          Column(modifier = Modifier.weight(1f)) {
+            Text("Broadcast New App Version Notice", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+            Text("Displays a non-blocking update banner on students' dashboards.", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+          }
+          Switch(checked = hasUpdateNotice, onCheckedChange = { hasUpdateNotice = it })
+        }
+
+        if (hasUpdateNotice) {
+          Spacer(modifier = Modifier.height(10.dp))
+          OutlinedTextField(
+            value = updateNotes,
+            onValueChange = { updateNotes = it },
+            label = { Text("Update Banner Prompt Message") },
+            placeholder = { Text("e.g. New 2026 Semester Mock Questions and Anatomy Diagrams have been released.", color = TextMuted) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp),
+            colors = outlinedFieldColors()
+          )
+        }
+
+        Spacer(modifier = Modifier.height(16.dp))
+
+        if (statusMessage != null) {
+          Text(statusMessage!!, color = SuccessGreen, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold), modifier = Modifier.padding(bottom = 10.dp))
+        }
+
+        Button(
+          onClick = {
+            isSaving = true
+            val updated = AboutAppContent(
+              description = desc.trim(),
+              versionNotes = versionNotes.trim(),
+              departmentContact = contact.trim(),
+              credits = credits.trim(),
+              hasUpdateNotice = hasUpdateNotice,
+              updateNotes = updateNotes.trim()
+            )
+            adminViewModel.updateAboutAppManagement(updated) {
+              isSaving = false
+              statusMessage = "About App details pushed live to all student devices!"
+            }
+          },
+          modifier = Modifier.fillMaxWidth().height(48.dp),
+          shape = RoundedCornerShape(10.dp),
+          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+          enabled = !isSaving
+        ) {
+          Icon(Icons.Outlined.Send, contentDescription = null, modifier = Modifier.size(16.dp))
+          Spacer(modifier = Modifier.width(8.dp))
+          Text(if (isSaving) "Pushing to Cloud..." else "Push About Updates Instantly to Students")
+        }
+      }
+    }
+
+    Spacer(modifier = Modifier.height(24.dp))
+  }
+}
+
+/**
+ * 5. Student Feedback Inbox View:
+ * Admin reviews questions, feedback, and issue reports submitted by students.
+ */
+@Composable
+fun AdminFeedbackInboxView(
+  adminViewModel: AdminViewModel
+) {
+  val feedbackList by adminViewModel.studentFeedbackList.collectAsState()
+
+  Column(
+    modifier = Modifier
+      .fillMaxSize()
+      .padding(vertical = 12.dp)
+  ) {
+    Text(
+      text = "Student Help & Feedback Inbox (${feedbackList.size})",
+      style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold),
+      color = MaterialTheme.colorScheme.onSurface
+    )
+    Text(
+      text = "Inquiries, question feedback, and reports submitted by students from the help channel.",
+      style = MaterialTheme.typography.bodySmall,
+      color = MaterialTheme.colorScheme.onSurfaceVariant
+    )
+
+    Spacer(modifier = Modifier.height(14.dp))
+
+    if (feedbackList.isEmpty()) {
+      Box(
+        modifier = Modifier.fillMaxSize().padding(40.dp),
+        contentAlignment = Alignment.Center
+      ) {
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+          Icon(Icons.Outlined.Feedback, contentDescription = null, tint = TextMuted, modifier = Modifier.size(48.dp))
+          Spacer(modifier = Modifier.height(10.dp))
+          Text("No student feedback inquiries received yet.", color = TextMuted)
+        }
+      }
+    } else {
+      LazyColumn(
+        modifier = Modifier.fillMaxSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp)
+      ) {
+        items(feedbackList) { item ->
+          Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, BorderSubtle)
+          ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Text(item.studentName, style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
+                Surface(
+                  shape = RoundedCornerShape(4.dp),
+                  color = MedicalTeal.copy(alpha = 0.15f)
+                ) {
+                  Text(
+                    item.category,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MedicalTeal,
+                    modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                  )
+                }
+              }
+
+              Text(item.studentEmail, style = MaterialTheme.typography.labelSmall, color = TextMuted)
+
+              Spacer(modifier = Modifier.height(8.dp))
+
+              Text(item.message, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurface)
+
+              Spacer(modifier = Modifier.height(8.dp))
+
+              Text(
+                SimpleDateFormat("dd MMM yyyy, hh:mm a", Locale.getDefault()).format(Date(item.timestamp)),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+            }
+          }
+        }
+      }
+    }
+  }
+}
