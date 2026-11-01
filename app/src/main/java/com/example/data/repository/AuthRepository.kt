@@ -40,6 +40,9 @@ class AuthRepository(private val context: Context, private val database: AppData
     val department: String,
     val faculty: String,
     val role: String,
+    val adminRole: String = "",
+    val assignedCourses: String = "",
+    val permissions: String = "ALL",
     val passwordHash: String? = null,
     val isActive: Boolean = true
   )
@@ -59,6 +62,10 @@ class AuthRepository(private val context: Context, private val database: AppData
           if (valStr.isNotBlank() && valStr.startsWith("{")) {
             val userObj = JSONObject(valStr)
             val em = userObj.optString("email", trimmedEmail).lowercase()
+            val rawRole = userObj.optString("role", userObj.optString("app_role", "STUDENT")).uppercase()
+            val rawAdminRole = userObj.optString("adminRole", userObj.optString("admin_role", ""))
+            val rawAssignedCourses = userObj.optString("assigned_courses", userObj.optString("assignedCourses", ""))
+            val rawPermissions = userObj.optString("permissions", "ALL")
             return RemoteUserRecord(
               email = em,
               fullName = userObj.optString("full_name", userObj.optString("fullName", "Student")),
@@ -66,7 +73,10 @@ class AuthRepository(private val context: Context, private val database: AppData
               level = userObj.optString("level", "100 Level"),
               department = userObj.optString("department", "Medical Radiography"),
               faculty = userObj.optString("faculty", "College of Medical Sciences"),
-              role = userObj.optString("role", userObj.optString("app_role", "STUDENT")).uppercase(),
+              role = rawRole,
+              adminRole = rawAdminRole,
+              assignedCourses = rawAssignedCourses,
+              permissions = rawPermissions,
               passwordHash = userObj.optString("password_hash", "").ifBlank { null },
               isActive = userObj.optBoolean("is_active", true)
             )
@@ -86,6 +96,7 @@ class AuthRepository(private val context: Context, private val database: AppData
         val list = supabaseClient.moshi.adapter<List<SupabaseProfile>>(type).fromJson(json) ?: emptyList()
         val p = list.firstOrNull()
         if (p != null) {
+          val isAdmin = p.appRole?.equals("admin", ignoreCase = true) == true
           return RemoteUserRecord(
             email = p.email?.trim()?.lowercase() ?: trimmedEmail,
             fullName = p.fullName ?: "Student",
@@ -93,7 +104,10 @@ class AuthRepository(private val context: Context, private val database: AppData
             level = p.level ?: "100 Level",
             department = p.department ?: "Medical Radiography",
             faculty = p.faculty ?: "College of Medical Sciences",
-            role = if (p.appRole?.equals("admin", ignoreCase = true) == true) "ADMIN" else "STUDENT",
+            role = if (isAdmin) "ADMIN" else "STUDENT",
+            adminRole = if (isAdmin) (if (trimmedEmail == "admin@medrad.edu.ng") "PRIMARY" else "SECONDARY") else "",
+            assignedCourses = p.level ?: "100 Level",
+            permissions = if (isAdmin) "ALL" else "",
             passwordHash = null,
             isActive = p.isActive
           )
@@ -130,6 +144,11 @@ class AuthRepository(private val context: Context, private val database: AppData
                 // Confirm if database is reachable before auto-signing out to prevent offline lockout
                 val ping = supabaseClient.restGet("app_config?select=key&limit=1")
                 if (ping.isSuccess) {
+                  // Never delete administrators from local cache
+                  if (user.role.equals("ADMIN", ignoreCase = true) || user.adminRole.equals("SECONDARY", ignoreCase = true)) {
+                    _currentUser.value = user
+                    return@withContext
+                  }
                   // User does not exist on database (or was deleted manually)
                   Log.w(tag, "User $trimmedEmail was deleted or does not exist on database. Purging session & auto-signing out.")
                   database.userDao().deleteUser(user)
@@ -139,15 +158,34 @@ class AuthRepository(private val context: Context, private val database: AppData
               } else {
                 // Keep local user in sync with latest database profile (level, name, role)
                 val normalizedLevel = LevelClassifier.normalizeLevel(remoteUser.level)
+                val isExplicitAdmin = remoteUser.role.equals("ADMIN", ignoreCase = true) ||
+                    user.role.equals("ADMIN", ignoreCase = true) ||
+                    remoteUser.adminRole.equals("SECONDARY", ignoreCase = true) ||
+                    user.adminRole.equals("SECONDARY", ignoreCase = true)
+                val resolvedRole = if (isExplicitAdmin) "ADMIN" else remoteUser.role
+                val resolvedAdminRole = if (trimmedEmail == "admin@medrad.edu.ng") "PRIMARY"
+                    else if (remoteUser.adminRole.isNotBlank()) remoteUser.adminRole
+                    else if (user.adminRole.isNotBlank()) user.adminRole
+                    else if (resolvedRole == "ADMIN") "SECONDARY" else ""
+                val resolvedAssignedCourses = if (remoteUser.assignedCourses.isNotBlank()) remoteUser.assignedCourses
+                    else if (user.assignedCourses.isNotBlank()) user.assignedCourses
+                    else normalizedLevel
+                val resolvedPermissions = if (remoteUser.permissions.isNotBlank()) remoteUser.permissions
+                    else if (user.permissions.isNotBlank()) user.permissions
+                    else if (resolvedRole == "ADMIN") "materials,questions,announcements,libraries,exams" else ""
+
                 val updated = user.copy(
                   fullName = remoteUser.fullName.ifBlank { user.fullName },
                   phoneNumber = remoteUser.phone.ifBlank { user.phoneNumber },
                   department = remoteUser.department.ifBlank { user.department },
                   faculty = remoteUser.faculty.ifBlank { user.faculty },
                   level = normalizedLevel,
-                  role = remoteUser.role,
+                  role = resolvedRole,
+                  adminRole = resolvedAdminRole,
+                  assignedCourses = resolvedAssignedCourses,
+                  permissions = resolvedPermissions,
                   isActive = remoteUser.isActive,
-                  isPremium = if (remoteUser.role == "ADMIN") true else user.isPremium
+                  isPremium = if (resolvedRole == "ADMIN") true else user.isPremium
                 )
                 database.userDao().updateUser(updated)
                 _currentUser.value = updated
@@ -235,12 +273,16 @@ class AuthRepository(private val context: Context, private val database: AppData
 
         // If database is reachable and user does not exist in the database users list:
         if (isDatabaseOnline && remoteUser == null) {
-          if (localUser != null) {
-            database.userDao().deleteUser(localUser)
+          if (localUser != null && (localUser.role.equals("ADMIN", ignoreCase = true) || localUser.adminRole.equals("SECONDARY", ignoreCase = true))) {
+            // Keep existing admin
+          } else {
+            if (localUser != null) {
+              database.userDao().deleteUser(localUser)
+            }
+            return@withContext Result.failure(
+              Exception("Account does not exist on the database. Please register first to create your account.")
+            )
           }
-          return@withContext Result.failure(
-            Exception("Account does not exist on the database. Please register first to create your account.")
-          )
         }
 
         // Password Verification:
@@ -266,7 +308,15 @@ class AuthRepository(private val context: Context, private val database: AppData
         }
 
         // User authenticated! Resolve profile details
-        val resolvedRole = remoteUser?.role ?: (localUser?.role ?: "STUDENT")
+        val isExplicitAdmin = remoteUser?.role?.equals("ADMIN", ignoreCase = true) == true ||
+            (localUser?.role?.equals("ADMIN", ignoreCase = true) == true) ||
+            (remoteUser?.adminRole?.equals("SECONDARY", ignoreCase = true) == true) ||
+            (localUser?.adminRole?.equals("SECONDARY", ignoreCase = true) == true)
+        val resolvedRole = if (isExplicitAdmin) "ADMIN" else (remoteUser?.role ?: (localUser?.role ?: "STUDENT"))
+        val resolvedAdminRole = if (trimmedEmail == "admin@medrad.edu.ng") "PRIMARY"
+            else if (remoteUser?.adminRole?.isNotBlank() == true) remoteUser.adminRole
+            else if (localUser?.adminRole?.isNotBlank() == true) localUser.adminRole
+            else if (resolvedRole == "ADMIN") "SECONDARY" else ""
         val resolvedName = remoteUser?.fullName?.ifBlank { localUser?.fullName ?: "Radiography Scholar" } ?: (localUser?.fullName ?: "Radiography Scholar")
         val resolvedLevel = if (!remoteUser?.level.isNullOrBlank()) {
           LevelClassifier.normalizeLevel(remoteUser.level)
@@ -274,6 +324,12 @@ class AuthRepository(private val context: Context, private val database: AppData
         val resolvedPhone = remoteUser?.phone?.ifBlank { localUser?.phoneNumber ?: "" } ?: (localUser?.phoneNumber ?: "")
         val resolvedDept = remoteUser?.department?.ifBlank { localUser?.department ?: "Medical Radiography" } ?: (localUser?.department ?: "Medical Radiography")
         val resolvedFaculty = remoteUser?.faculty?.ifBlank { localUser?.faculty ?: "College of Medical Sciences" } ?: (localUser?.faculty ?: "College of Medical Sciences")
+        val resolvedAssignedCourses = if (remoteUser?.assignedCourses?.isNotBlank() == true) remoteUser.assignedCourses
+            else if (localUser?.assignedCourses?.isNotBlank() == true) localUser.assignedCourses
+            else resolvedLevel
+        val resolvedPermissions = if (remoteUser?.permissions?.isNotBlank() == true) remoteUser.permissions
+            else if (localUser?.permissions?.isNotBlank() == true) localUser.permissions
+            else if (resolvedRole == "ADMIN") "materials,questions,announcements,libraries,exams" else ""
 
         val userEntity = if (localUser == null) {
           val newUser = UserEntity(
@@ -282,6 +338,9 @@ class AuthRepository(private val context: Context, private val database: AppData
             phoneNumber = resolvedPhone,
             passwordHash = PasswordSecurity.hashPassword(password),
             role = resolvedRole,
+            adminRole = resolvedAdminRole,
+            assignedCourses = resolvedAssignedCourses,
+            permissions = resolvedPermissions,
             university = "University of Maiduguri",
             faculty = resolvedFaculty,
             department = resolvedDept,
@@ -296,6 +355,9 @@ class AuthRepository(private val context: Context, private val database: AppData
             fullName = resolvedName,
             phoneNumber = resolvedPhone,
             role = resolvedRole,
+            adminRole = resolvedAdminRole,
+            assignedCourses = resolvedAssignedCourses,
+            permissions = resolvedPermissions,
             department = resolvedDept,
             faculty = resolvedFaculty,
             level = resolvedLevel,
@@ -680,7 +742,8 @@ class AuthRepository(private val context: Context, private val database: AppData
         val updated = user.copy(
           fullName = newFullName.trim().ifEmpty { user.fullName },
           phoneNumber = newPhoneNumber.trim(),
-          level = normalizedLevel
+          level = normalizedLevel,
+          assignedCourses = if (user.role == "ADMIN" && !newLevel.isNullOrBlank()) normalizedLevel else user.assignedCourses
         )
         // 1. Immediately update Room database so it is saved locally on device
         database.userDao().updateUser(updated)

@@ -22,24 +22,11 @@ object DatabaseInitializer {
       val materialDao = database.studyMaterialDao()
       val libraryDao = database.courseLibraryDao()
 
-      // 1. Purge all demo/unverified items and old initial courses as requested
-      try {
-        val existingCourses = academicDao.getCoursesList()
-        // Remove all courses except ANA 201
-        for (dc in existingCourses) {
-          val normalizedCode = dc.code.trim().replace(" ", "").uppercase()
-          if (normalizedCode != "ANA201") {
-            academicDao.deleteCourse(dc)
-          }
-        }
-      } catch (_: Exception) {}
-
+      // 1. Purge only demo-tagged items as requested without touching legitimate courses
       try {
         val existingQuestions = questionDao.getAllQuestionsList()
-        val anaCourse = academicDao.getCoursesList().firstOrNull { it.code.trim().replace(" ", "").uppercase() == "ANA201" }
-        val anaId = anaCourse?.id
         for (dq in existingQuestions) {
-          if (dq.isDemo || dq.courseId != anaId || dq.questionText.startsWith("[Demo Question]") || dq.questionText.contains("demo", ignoreCase = true)) {
+          if (dq.isDemo || dq.questionText.startsWith("[Demo Question]") || dq.questionText.contains("demo", ignoreCase = true)) {
             questionDao.deleteQuestion(dq)
           }
         }
@@ -140,6 +127,39 @@ object DatabaseInitializer {
       } else {
         val targetId = existingByRemote?.id ?: existingByCode?.id ?: 1L
         academicDao.insertCourse(authoritativeCourse.copy(id = targetId))
+      }
+
+      // Ensure foundational courses exist for 300L, 400L, 500L Radiography students and admins
+      val coreCourses = listOf(
+        CourseEntity(
+          departmentId = deptId,
+          code = "RAD 301",
+          title = "RADIOGRAPHIC TECHNIQUES & PROCEDURES",
+          level = "300 Level",
+          semester = "First Semester",
+          description = "General and departmental radiographic positioning and techniques."
+        ),
+        CourseEntity(
+          departmentId = deptId,
+          code = "RAD 401",
+          title = "RADIATION PROTECTION, DOSIMETRY & RADIOBIOLOGY",
+          level = "400 Level",
+          semester = "First Semester",
+          description = "Principles of radiation safety, radiation physics, and biological effects."
+        ),
+        CourseEntity(
+          departmentId = deptId,
+          code = "RAD 501",
+          title = "ADVANCED IMAGING, CT/MRI & CLINICAL RADIOGRAPHY",
+          level = "500 Level",
+          semester = "First Semester",
+          description = "Cross-sectional imaging, computed tomography, magnetic resonance, and clinical interventions."
+        )
+      )
+      for (core in coreCourses) {
+        if (academicDao.getCourseByCode(core.code) == null) {
+          academicDao.insertCourse(core)
+        }
       }
 
       // 2. Ensure Default Authenticated Admin & Student Accounts exist if not present

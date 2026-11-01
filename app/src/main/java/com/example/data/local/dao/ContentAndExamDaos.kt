@@ -136,6 +136,15 @@ interface ExamDao {
 
   @Query("SELECT COUNT(*) FROM exam_attempts WHERE userId = :userId")
   suspend fun getUserAttemptsCount(userId: Long): Int
+
+  @Delete
+  suspend fun deleteAttempt(attempt: ExamAttemptEntity)
+
+  @Query("DELETE FROM exam_attempts WHERE id = :id")
+  suspend fun deleteAttemptById(id: Long)
+
+  @Query("DELETE FROM exam_attempts WHERE id IN (:ids)")
+  suspend fun deleteAttemptsByIds(ids: List<Long>)
 }
 
 @Dao

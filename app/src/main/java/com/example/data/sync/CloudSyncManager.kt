@@ -760,7 +760,9 @@ class CloudSyncManager(
       else -> {
         // Handle level-specific pipeline configs: sprint_<lvl>_*, practice_card_<lvl>_*, mock_card_<lvl>_*
         if (key.startsWith("sprint_") || key.startsWith("practice_card_") || key.startsWith("mock_card_")) {
-          if (value.equals("true", ignoreCase = true) || value.equals("false", ignoreCase = true)) {
+          if (key.endsWith("_session_id") || key.endsWith("_code") || key.endsWith("_title") || key.endsWith("_badge") || key.endsWith("_theme") || key.endsWith("_subtitle") || key.endsWith("_reveal_mode") || key.endsWith("_deadline_string") || key.endsWith("_question_ids") || key.endsWith("_students")) {
+            prefs.edit().putString(key, value).apply()
+          } else if (value.equals("true", ignoreCase = true) || value.equals("false", ignoreCase = true)) {
             prefs.edit().putBoolean(key, value.toBoolean()).apply()
           } else if (value.toLongOrNull() != null && (key.endsWith("_id") || key.endsWith("_timestamp"))) {
             prefs.edit().putLong(key, value.toLong()).apply()
@@ -923,6 +925,10 @@ class CloudSyncManager(
       val configRes = supabaseClient.restGet("app_config?key=like.student_user_*&select=*")
       val configList = mutableListOf<SupabaseProfile>()
       val passwordHashes = mutableMapOf<String, String>()
+      val adminRolesMap = mutableMapOf<String, String>()
+      val assignedCoursesMap = mutableMapOf<String, String>()
+      val permissionsMap = mutableMapOf<String, String>()
+
       if (configRes.isSuccess) {
         val cfgJson = configRes.getOrNull() ?: "[]"
         try {
@@ -940,11 +946,23 @@ class CloudSyncManager(
                 val sDept = userObj.optString("department", "Medical Radiography")
                 val sFaculty = userObj.optString("faculty", "College of Medical Sciences")
                 val sAppRole = userObj.optString("app_role", userObj.optString("role", "student")).lowercase()
+                val sAdminRole = userObj.optString("adminRole", userObj.optString("admin_role", ""))
+                val sAssignedCourses = userObj.optString("assigned_courses", userObj.optString("assignedCourses", ""))
+                val sPermissions = userObj.optString("permissions", "ALL")
                 val sIsActive = userObj.optBoolean("is_active", true)
                 val sId = userObj.optString("id", FlexibleIdHelper.toUuidString(userObj.optLong("created_at", System.currentTimeMillis()), "user"))
                 val sPassHash = userObj.optString("password_hash")
                 if (sPassHash.isNotBlank()) {
                   passwordHashes[sEmail] = sPassHash
+                }
+                if (sAdminRole.isNotBlank()) {
+                  adminRolesMap[sEmail] = sAdminRole
+                }
+                if (sAssignedCourses.isNotBlank()) {
+                  assignedCoursesMap[sEmail] = sAssignedCourses
+                }
+                if (sPermissions.isNotBlank()) {
+                  permissionsMap[sEmail] = sPermissions
                 }
                 configList.add(
                   SupabaseProfile(
@@ -978,12 +996,16 @@ class CloudSyncManager(
           if (existing == null) {
             combinedProfiles[em] = cp
           } else {
+            val isRemoteAdmin = cp.appRole?.equals("admin", ignoreCase = true) == true ||
+                existing.appRole?.equals("admin", ignoreCase = true) == true ||
+                em == "admin@medrad.edu.ng"
             combinedProfiles[em] = existing.copy(
               fullName = cp.fullName?.ifBlank { existing.fullName } ?: existing.fullName,
               level = cp.level?.ifBlank { existing.level } ?: existing.level,
               matricNumber = cp.matricNumber?.ifBlank { existing.matricNumber } ?: existing.matricNumber,
               department = cp.department?.ifBlank { existing.department } ?: existing.department,
               faculty = cp.faculty?.ifBlank { existing.faculty } ?: existing.faculty,
+              appRole = if (isRemoteAdmin) "admin" else (cp.appRole ?: existing.appRole),
               isActive = cp.isActive
             )
           }
@@ -999,7 +1021,13 @@ class CloudSyncManager(
 
         for (localUser in localUsers) {
           val localEmail = localUser.email.trim().lowercase()
-          if (localEmail == "admin@medrad.edu.ng") continue // Preserve primary admin fallback
+          // Never purge administrators from local cache
+          if (localEmail == "admin@medrad.edu.ng" ||
+              localUser.role.equals("ADMIN", ignoreCase = true) ||
+              localUser.adminRole.equals("SECONDARY", ignoreCase = true) ||
+              localUser.adminRole.equals("PRIMARY", ignoreCase = true)) {
+            continue
+          }
 
           if (!remoteEmails.contains(localEmail)) {
             Log.i(tag, "User $localEmail deleted from remote database. Purging from local database.")
@@ -1016,15 +1044,32 @@ class CloudSyncManager(
       // 5. Insert or update users in local Room database with fresh authoritative profiles
       for ((email, p) in combinedProfiles) {
         p.id?.let { uuidToEmail[it] = email }
-        val resolvedRole = if (p.appRole?.equals("admin", ignoreCase = true) == true || email == "admin@medrad.edu.ng") "ADMIN" else "STUDENT"
         val existing = database.userDao().getUserByEmail(email)
+        val isExplicitAdmin = p.appRole?.equals("admin", ignoreCase = true) == true ||
+            email == "admin@medrad.edu.ng" ||
+            adminRolesMap[email]?.isNotBlank() == true ||
+            existing?.role?.equals("ADMIN", ignoreCase = true) == true
+        val resolvedRole = if (isExplicitAdmin) "ADMIN" else "STUDENT"
+        val resolvedAdminRole = if (email == "admin@medrad.edu.ng") "PRIMARY"
+            else if (adminRolesMap[email]?.isNotBlank() == true) adminRolesMap[email]!!
+            else if (existing?.adminRole?.isNotBlank() == true) existing.adminRole
+            else if (resolvedRole == "ADMIN") "SECONDARY" else ""
         val normalizedLevel = if (!p.level.isNullOrBlank()) LevelClassifier.normalizeLevel(p.level) else (existing?.level ?: "100 Level")
+        val resolvedAssignedCourses = if (assignedCoursesMap[email]?.isNotBlank() == true) assignedCoursesMap[email]!!
+            else if (existing?.assignedCourses?.isNotBlank() == true) existing.assignedCourses
+            else normalizedLevel
+        val resolvedPermissions = if (permissionsMap[email]?.isNotBlank() == true) permissionsMap[email]!!
+            else if (existing?.permissions?.isNotBlank() == true) existing.permissions
+            else if (resolvedRole == "ADMIN") "materials,questions,announcements,libraries,exams" else ""
         val remoteHash = passwordHashes[email] ?: ""
         if (existing != null) {
           val updated = existing.copy(
             fullName = p.fullName?.ifBlank { existing.fullName } ?: existing.fullName,
             phoneNumber = if (!p.matricNumber.isNullOrBlank()) p.matricNumber else existing.phoneNumber,
             role = resolvedRole,
+            adminRole = resolvedAdminRole,
+            assignedCourses = resolvedAssignedCourses,
+            permissions = resolvedPermissions,
             department = p.department ?: existing.department,
             faculty = p.faculty ?: existing.faculty,
             level = normalizedLevel,
@@ -1040,8 +1085,9 @@ class CloudSyncManager(
             phoneNumber = p.matricNumber ?: "",
             passwordHash = remoteHash,
             role = resolvedRole,
-            adminRole = if (email == "admin@medrad.edu.ng") "PRIMARY" else if (resolvedRole == "ADMIN") "SECONDARY" else "",
-            permissions = if (resolvedRole == "ADMIN") "ALL" else "",
+            adminRole = resolvedAdminRole,
+            permissions = resolvedPermissions,
+            assignedCourses = resolvedAssignedCourses,
             isActive = p.isActive,
             university = "University of Maiduguri",
             faculty = p.faculty ?: "College of Medical Sciences",
@@ -2047,10 +2093,30 @@ class CloudSyncManager(
       val parentCourse = database.academicDao().getCourseById(q.courseId)
       var courseRemoteUuid = q.remoteCourseId ?: parentCourse?.remoteId
       if (courseRemoteUuid.isNullOrBlank() || courseRemoteUuid.length != 36) {
-        val courseByCode = parentCourse?.let { database.academicDao().getCourseByCode(it.code) }
-        courseRemoteUuid = courseByCode?.remoteId?.takeIf { it.length == 36 } ?: UUID.randomUUID().toString()
-        if (parentCourse != null) {
-          database.academicDao().insertCourse(parentCourse.copy(remoteId = courseRemoteUuid))
+        val cCode = parentCourse?.code?.trim()
+        if (!cCode.isNullOrBlank()) {
+          try {
+            val checkCourse = supabaseClient.restGet("courses?code=eq.$cCode&select=id&limit=1")
+            val checkJson = checkCourse.getOrNull() ?: "[]"
+            val arr = JSONArray(checkJson)
+            if (arr.length() > 0) {
+              val found = arr.getJSONObject(0).optString("id")
+              if (found.length == 36) {
+                courseRemoteUuid = found
+                if (parentCourse != null) {
+                  database.academicDao().insertCourse(parentCourse.copy(remoteId = found))
+                }
+              }
+            }
+          } catch (_: Exception) {}
+        }
+        if (courseRemoteUuid.isNullOrBlank() || courseRemoteUuid.length != 36) {
+          courseRemoteUuid = UUID.randomUUID().toString()
+          if (parentCourse != null) {
+            val updatedCourse = parentCourse.copy(remoteId = courseRemoteUuid)
+            database.academicDao().insertCourse(updatedCourse)
+            broadcastCourse(updatedCourse)
+          }
         }
       }
 
@@ -2062,23 +2128,40 @@ class CloudSyncManager(
         if (validExam != null) {
           examRemoteUuid = validExam.remoteId
         } else {
-          val newExamId = UUID.randomUUID().toString()
-          val cCode = parentCourse?.code ?: "Course"
-          val cTitle = parentCourse?.title ?: "Academic Course"
-          val newExam = ExamEntity(
-            courseId = q.courseId,
-            title = "$cCode Continuous Assessment",
-            description = "Continuous Assessment and Question Bank for $cTitle",
-            durationMinutes = 30,
-            totalQuestions = 15,
-            isPremium = false,
-            isPublished = true,
-            remoteId = newExamId,
-            remoteCourseId = courseRemoteUuid
-          )
-          val insertedId = database.examDao().insertExam(newExam)
-          broadcastExam(newExam.copy(id = insertedId))
-          examRemoteUuid = newExamId
+          // Check if Supabase already has an exam for this course
+          if (courseRemoteUuid != null && courseRemoteUuid.length == 36) {
+            try {
+              val exRes = supabaseClient.restGet("exams?course_id=eq.$courseRemoteUuid&select=id&limit=1")
+              val exJson = exRes.getOrNull() ?: "[]"
+              val arr = JSONArray(exJson)
+              if (arr.length() > 0) {
+                val foundEx = arr.getJSONObject(0).optString("id")
+                if (foundEx.length == 36) {
+                  examRemoteUuid = foundEx
+                }
+              }
+            } catch (_: Exception) {}
+          }
+
+          if (examRemoteUuid.isNullOrBlank() || examRemoteUuid.length != 36) {
+            val newExamId = UUID.randomUUID().toString()
+            val cCode = parentCourse?.code ?: "Course"
+            val cTitle = parentCourse?.title ?: "Academic Course"
+            val newExam = ExamEntity(
+              courseId = q.courseId,
+              title = "$cCode Continuous Assessment",
+              description = "Continuous Assessment and Question Bank for $cTitle",
+              durationMinutes = 30,
+              totalQuestions = 15,
+              isPremium = false,
+              isPublished = true,
+              remoteId = newExamId,
+              remoteCourseId = courseRemoteUuid
+            )
+            val insertedId = database.examDao().insertExam(newExam)
+            broadcastExam(newExam.copy(id = insertedId))
+            examRemoteUuid = newExamId
+          }
         }
       }
 
@@ -2815,12 +2898,44 @@ class CloudSyncManager(
         put("level", user.level)
         put("department", user.department)
         put("faculty", user.faculty)
-        put("app_role", if (user.role == "ADMIN") "admin" else "student")
+        put("app_role", if (user.role.equals("ADMIN", ignoreCase = true)) "admin" else "student")
         put("is_active", user.isActive)
       }
 
       val res = supabaseClient.restPost("profiles", payload.toString(), upsert = true)
       realtimeManager?.dispatchRealtimeEvent("profiles", if (existingId != null) "UPDATE" else "INSERT", payload)
+
+      // Also authoritatively write to app_config student_user_$email for instant global sync across all devices
+      try {
+        val userConfigJson = JSONObject().apply {
+          put("id", profileId)
+          put("email", email)
+          put("full_name", user.fullName.trim())
+          put("phone", user.phoneNumber.trim())
+          put("matric_number", user.phoneNumber.trim())
+          put("level", user.level)
+          put("department", user.department)
+          put("faculty", user.faculty)
+          put("university", user.university)
+          put("role", user.role.uppercase())
+          put("app_role", if (user.role.equals("ADMIN", ignoreCase = true)) "admin" else "student")
+          put("adminRole", user.adminRole)
+          put("permissions", user.permissions)
+          put("assigned_courses", user.assignedCourses)
+          put("password_hash", user.passwordHash)
+          put("is_active", user.isActive)
+          put("created_at", user.createdAt)
+        }
+        val configPayload = JSONObject().apply {
+          put("key", "student_user_$email")
+          put("value", userConfigJson.toString())
+          put("description", if (user.role.equals("ADMIN", ignoreCase = true)) "Admin Account: ${user.fullName.trim()} (${user.adminRole} - ${user.level})" else "Student Account: ${user.fullName.trim()} (${user.level})")
+        }
+        supabaseClient.restPost("app_config", configPayload.toString(), upsert = true)
+      } catch (ce: Exception) {
+        Log.w(tag, "Notice writing user to app_config during broadcastProfile: ${ce.message}")
+      }
+
       Result.success(res.isSuccess)
     } catch (e: Exception) {
       Log.e(tag, "broadcastProfile error: ${e.message}", e)
@@ -2849,8 +2964,10 @@ class CloudSyncManager(
     if (getRes.isFailure) {
       return@withContext "Cannot reach Supabase REST API (${SupabaseConfig.PROJECT_ID}). Check URL or connectivity."
     }
-    val testPayload = JSONArray().apply {
-      put(JSONObject().put("key", "test_connection").put("value", System.currentTimeMillis().toString()))
+    val testPayload = JSONObject().apply {
+      put("key", "test_connection")
+      put("value", System.currentTimeMillis().toString())
+      put("description", "Health check ping")
     }
     val postRes = supabaseClient.restPost("app_config", testPayload.toString(), upsert = true)
     return@withContext if (postRes.isSuccess) {

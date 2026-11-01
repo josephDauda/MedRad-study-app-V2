@@ -11,6 +11,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -24,6 +25,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -121,9 +123,18 @@ import com.example.data.local.entity.TopicEntity
 import com.example.data.local.entity.UserEntity
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.text.KeyboardActions
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.compose.material.icons.filled.AddPhotoAlternate
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import com.example.data.util.ImageCompressor
 import com.example.data.util.LevelClassifier
 import com.example.data.sync.DailyCbtSprintConfig
 import com.example.data.sync.MockCardConfig
@@ -280,19 +291,28 @@ fun AdminDashboardScreen(
         .padding(innerPadding)
         .background(MaterialTheme.colorScheme.background)
     ) {
-      // Horizontal Tab Navigation
+      // Horizontal Tab Navigation (auto-centers active tab on all screen sizes)
+      val tabListState = rememberLazyListState()
+      LaunchedEffect(selectedSection) {
+        val targetIdx = sections.indexOf(selectedSection)
+        if (targetIdx >= 0) {
+          tabListState.animateScrollToItem(targetIdx)
+        }
+      }
+
       LazyRow(
+        state = tabListState,
         modifier = Modifier
           .fillMaxWidth()
           .background(MaterialTheme.colorScheme.surface)
-          .padding(horizontal = 12.dp, vertical = 8.dp),
-        horizontalArrangement = Arrangement.spacedBy(8.dp)
+          .padding(horizontal = 8.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
       ) {
         items(sections) { sec ->
           FilterChip(
             selected = selectedSection == sec,
             onClick = { selectedSection = sec },
-            label = { Text(sec) },
+            label = { Text(sec, maxLines = 1, style = MaterialTheme.typography.labelMedium) },
             colors = FilterChipDefaults.filterChipColors(
               selectedContainerColor = MaterialTheme.colorScheme.primary,
               selectedLabelColor = MaterialTheme.colorScheme.onPrimary
@@ -772,13 +792,13 @@ fun AdminQuestionsView(
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.isBlank()
-  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
+  val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   var selectedLevelFilter by remember { mutableStateOf("All") }
   val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
 
   val baseQuestions = remember(questions, isPrimary, secondaryAdminLevel) {
-    if (!isPrimary && secondaryAdminLevel != null) {
+    if (!isPrimary && secondaryAdminLevel != null && secondaryAdminLevel != "All Levels") {
       questions.filter { q ->
         val courseCode = courses.find { it.id == q.courseId }?.code
         LevelClassifier.matchesLevel(secondaryAdminLevel, courseCode)
@@ -997,11 +1017,11 @@ fun AdminExamsView(
   val isPrimary = currentUser == null ||
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && currentUser.level.isBlank())
-  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
+      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && (currentUser.level.isBlank() || currentUser.level.equals("Staff", ignoreCase = true)))
+  val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   val displayExams = remember(exams, isPrimary, secondaryAdminLevel, courses) {
-    if (!isPrimary && secondaryAdminLevel != null) {
+    if (!isPrimary && secondaryAdminLevel != null && secondaryAdminLevel != "All Levels") {
       exams.filter { ex ->
         val courseCode = courses.find { it.id == ex.courseId }?.code
         LevelClassifier.matchesLevel(secondaryAdminLevel, courseCode) || LevelClassifier.matchesLevel(secondaryAdminLevel, ex.title)
@@ -1129,13 +1149,13 @@ fun AdminMaterialsView(
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.isBlank()
-  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
+  val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   var selectedLevelFilter by remember { mutableStateOf("All") }
   val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
 
   val baseMaterials = remember(materials, isPrimary, secondaryAdminLevel) {
-    if (!isPrimary && secondaryAdminLevel != null) {
+    if (!isPrimary && secondaryAdminLevel != null && secondaryAdminLevel != "All Levels") {
       materials.filter { mat ->
         val courseCode = courses.find { it.id == mat.courseId }?.code
         LevelClassifier.matchesLevel(secondaryAdminLevel, courseCode)
@@ -1279,11 +1299,11 @@ fun AdminLibrariesView(
   val isPrimary = currentUser == null ||
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && currentUser.level.isBlank())
-  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
+      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && (currentUser.level.isBlank() || currentUser.level.equals("Staff", ignoreCase = true)))
+  val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   val displayLibraries = remember(libraries, isPrimary, secondaryAdminLevel, courses) {
-    if (!isPrimary && secondaryAdminLevel != null) {
+    if (!isPrimary && secondaryAdminLevel != null && secondaryAdminLevel != "All Levels") {
       libraries.filter { lib ->
         val matchedCourse = courses.find { it.id == lib.courseId }
         val courseCode = matchedCourse?.code ?: lib.courseCode
@@ -1475,18 +1495,20 @@ fun AdminRolesView(
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically
     ) {
-      Column {
+      Column(modifier = Modifier.weight(1f)) {
         Text(
           text = "Administrative Governance",
           style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
           color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-          text = "Primary & Secondary Departmental Administrators",
+          text = "Primary & Secondary Departmental Administrators (${admins.size})",
           style = MaterialTheme.typography.labelSmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
       }
+
+      Spacer(modifier = Modifier.width(8.dp))
 
       if (isPrimary) {
         Button(
@@ -1495,11 +1517,12 @@ fun AdminRolesView(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary
           ),
-          shape = RoundedCornerShape(8.dp)
+          shape = RoundedCornerShape(8.dp),
+          contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp)
         ) {
           Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
           Spacer(modifier = Modifier.width(4.dp))
-          Text("Add Admin")
+          Text("Add Admin", maxLines = 1, softWrap = false)
         }
       }
     }
@@ -1510,8 +1533,54 @@ fun AdminRolesView(
       modifier = Modifier.fillMaxSize(),
       verticalArrangement = Arrangement.spacedBy(10.dp)
     ) {
-      items(admins) { admin ->
-        val isTargetPrimary = admin.adminRole == "PRIMARY" || admin.email.equals("admin@medrad.edu.ng", ignoreCase = true)
+      if (admins.isEmpty()) {
+        item {
+          Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, BorderSubtle)
+          ) {
+            Column(modifier = Modifier.padding(14.dp)) {
+              Surface(
+                shape = RoundedCornerShape(4.dp),
+                color = WarningAmber.copy(alpha = 0.2f)
+              ) {
+                Text(
+                  text = "PRIMARY ADMIN",
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp),
+                  color = Color(0xFFB45309),
+                  modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                )
+              }
+              Spacer(modifier = Modifier.height(6.dp))
+              Text(
+                text = currentUser.fullName.ifBlank { "Chief Radiographer / Admin" },
+                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface
+              )
+              Text(
+                text = "${currentUser.email} • ${currentUser.phoneNumber}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+              Spacer(modifier = Modifier.height(4.dp))
+              Text(
+                text = "Assigned Level: All Levels • Courses: All Level Courses",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
+                color = ProfessionalBlue
+              )
+              Text(
+                text = "Permissions: ALL",
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+            }
+          }
+        }
+      } else {
+        items(admins) { admin ->
+          val isTargetPrimary = admin.adminRole.equals("PRIMARY", ignoreCase = true) || admin.email.equals("admin@medrad.edu.ng", ignoreCase = true)
         Card(
           modifier = Modifier.fillMaxWidth(),
           shape = RoundedCornerShape(12.dp),
@@ -1586,7 +1655,7 @@ fun AdminRolesView(
             Spacer(modifier = Modifier.height(4.dp))
 
             Text(
-              text = "Assigned Courses: ${admin.assignedCourses.ifBlank { "All Departmental Courses" }}",
+              text = "Assigned Level: ${admin.level} • Courses: ${admin.assignedCourses.ifBlank { "All Level Courses" }}",
               style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
               color = ProfessionalBlue
             )
@@ -1599,6 +1668,7 @@ fun AdminRolesView(
           }
         }
       }
+    }
 
       item {
         Spacer(modifier = Modifier.height(24.dp))
@@ -1620,11 +1690,11 @@ fun AdminSyllabusView(
   val isPrimary = currentUser == null ||
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && currentUser.level.isBlank())
-  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
+      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && (currentUser.level.isBlank() || currentUser.level.equals("Staff", ignoreCase = true)))
+  val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   val scopedCourses = remember(courses, isPrimary, secondaryAdminLevel) {
-    if (!isPrimary && secondaryAdminLevel != null) {
+    if (!isPrimary && secondaryAdminLevel != null && secondaryAdminLevel != "All Levels") {
       courses.filter { LevelClassifier.matchesLevel(secondaryAdminLevel, it.code) || LevelClassifier.matchesLevel(secondaryAdminLevel, it.level) }
     } else {
       courses
@@ -2084,33 +2154,25 @@ fun AdminStudentsView(
   onPromoteToAdmin: ((UserEntity) -> Unit)? = null
 ) {
   var searchQuery by remember { mutableStateOf("") }
-  var selectedLevelFilter by remember { mutableStateOf("All") }
-  val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
-
   val isPrimary = currentUser == null ||
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.isBlank()
 
-  val secondaryAdminLevel = if (!isPrimary) {
-    LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses })
-  } else null
+  val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
-  val baseStudents = remember(students, isPrimary, secondaryAdminLevel) {
-    if (!isPrimary && secondaryAdminLevel != null) {
-      students.filter { LevelClassifier.matchesLevel(secondaryAdminLevel, it.level) }
-    } else {
-      students
-    }
+  var selectedLevelFilter by remember(secondaryAdminLevel, isPrimary) {
+    mutableStateOf(if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else "All")
   }
+  val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
 
-  val filteredStudents = remember(baseStudents, searchQuery, selectedLevelFilter, isPrimary) {
-    baseStudents.filter { s ->
+  val filteredStudents = remember(students, searchQuery, selectedLevelFilter) {
+    students.filter { s ->
       val matchesSearch = searchQuery.isBlank() ||
         s.fullName.contains(searchQuery, ignoreCase = true) ||
         s.email.contains(searchQuery, ignoreCase = true) ||
         s.phoneNumber.contains(searchQuery, ignoreCase = true)
-      val matchesLevel = (!isPrimary) || selectedLevelFilter == "All" || LevelClassifier.matchesLevel(selectedLevelFilter, s.level)
+      val matchesLevel = selectedLevelFilter == "All" || LevelClassifier.matchesLevel(selectedLevelFilter, s.level)
       matchesSearch && matchesLevel
     }
   }
@@ -2124,12 +2186,12 @@ fun AdminStudentsView(
     ) {
       Column {
         Text(
-          text = if (isPrimary) "Enrolled Students (${filteredStudents.size} of ${students.size})" else "Enrolled Students: $secondaryAdminLevel (${filteredStudents.size})",
+          text = if (isPrimary) "Enrolled Students (${filteredStudents.size} of ${students.size})" else "Enrolled Students (${filteredStudents.size} of ${students.size})",
           style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
           color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-          text = if (isPrimary) "Alpha Admin Oversight — Real-time database users" else "Secondary Admin Scope: $secondaryAdminLevel",
+          text = if (isPrimary) "Alpha Admin Oversight — Real-time database users" else "Secondary Admin Oversight • Default Level: ${secondaryAdminLevel ?: "Assigned"}",
           style = MaterialTheme.typography.labelSmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
@@ -2169,40 +2231,40 @@ fun AdminStudentsView(
 
     Spacer(modifier = Modifier.height(8.dp))
 
-    // Level filter row (Primary Admin sees all levels; Secondary Admin sees their assigned scope badge)
-    if (isPrimary) {
-      LazyRow(
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
-        modifier = Modifier.fillMaxWidth()
-      ) {
-        items(levelOptions) { lvl ->
-          val isSelected = selectedLevelFilter == lvl
-          Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.clickable { selectedLevelFilter = lvl }
-          ) {
-            Text(
-              text = lvl,
-              style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal),
-              color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-            )
-          }
-        }
-      }
-    } else {
+    // Level filter row (Defaults to secondary admin's active level; allows flexible level switching for promotions/reviews)
+    if (!isPrimary && secondaryAdminLevel != null) {
       Surface(
         shape = RoundedCornerShape(8.dp),
-        color = MaterialTheme.colorScheme.primaryContainer,
-        modifier = Modifier.fillMaxWidth()
+        color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f),
+        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
       ) {
         Text(
-          text = "Showing only $secondaryAdminLevel students assigned to you",
-          style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+          text = "Default Assigned Level: $secondaryAdminLevel • Switch levels below freely to review any class roster",
+          style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Medium),
           color = MaterialTheme.colorScheme.onPrimaryContainer,
           modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
         )
+      }
+    }
+
+    LazyRow(
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+      modifier = Modifier.fillMaxWidth()
+    ) {
+      items(levelOptions) { lvl ->
+        val isSelected = selectedLevelFilter == lvl
+        Surface(
+          shape = RoundedCornerShape(8.dp),
+          color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+          modifier = Modifier.clickable { selectedLevelFilter = lvl }
+        ) {
+          Text(
+            text = lvl,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal),
+            color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+          )
+        }
       }
     }
 
@@ -2364,6 +2426,40 @@ fun AddQuestionDialog(
   onSave: (Long, Long, String, String, String, String, String, String, String, String, Boolean, String, String, Int, Int, String, String?) -> Unit
 ) {
   val focusManager = LocalFocusManager.current
+  val context = LocalContext.current
+  val coroutineScope = rememberCoroutineScope()
+  var isCompressingImage by remember { mutableStateOf(false) }
+  var showManualUrlInput by remember { mutableStateOf(false) }
+  var imageUrl by remember { mutableStateOf("") }
+
+  val focusRequesterOptA = remember { FocusRequester() }
+  val focusRequesterOptB = remember { FocusRequester() }
+  val focusRequesterOptC = remember { FocusRequester() }
+  val focusRequesterOptD = remember { FocusRequester() }
+  val focusRequesterAnswer = remember { FocusRequester() }
+  val focusRequesterExplanation = remember { FocusRequester() }
+
+  val photoPickerLauncher = rememberLauncherForActivityResult(
+    contract = ActivityResultContracts.PickVisualMedia()
+  ) { uri: Uri? ->
+    if (uri != null) {
+      coroutineScope.launch {
+        isCompressingImage = true
+        val result = ImageCompressor.compressToMediumDataUri(context, uri)
+        result.fold(
+          onSuccess = { compressedDataUri ->
+            imageUrl = compressedDataUri
+            Toast.makeText(context, "Image compressed & attached (Medium Resolution)", Toast.LENGTH_SHORT).show()
+          },
+          onFailure = { err ->
+            Toast.makeText(context, "Could not load image: ${err.message}", Toast.LENGTH_SHORT).show()
+          }
+        )
+        isCompressingImage = false
+      }
+    }
+  }
+
   var selectedCourseId by remember { mutableStateOf(courses.firstOrNull()?.id ?: 1L) }
   var courseDropdownExpanded by remember { mutableStateOf(false) }
 
@@ -2376,7 +2472,6 @@ fun AddQuestionDialog(
   var typeDropdownExpanded by remember { mutableStateOf(false) }
 
   var questionText by remember { mutableStateOf("") }
-  var imageUrl by remember { mutableStateOf("") }
   var optionA by remember { mutableStateOf("") }
   var optionB by remember { mutableStateOf("") }
   var optionC by remember { mutableStateOf("") }
@@ -2547,35 +2642,135 @@ fun AddQuestionDialog(
           onValueChange = { questionText = it },
           label = { Text("Question Text") },
           modifier = Modifier.fillMaxWidth(),
-          minLines = 2
+          minLines = 2,
+          keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+          keyboardActions = KeyboardActions(onNext = { focusRequesterOptA.requestFocus() })
         )
 
         Spacer(modifier = Modifier.height(8.dp))
 
-        OutlinedTextField(
-          value = imageUrl,
-          onValueChange = { imageUrl = it },
-          label = { Text("Image / Diagram URL (Optional)") },
-          placeholder = { Text("https://... or diagram path") },
+        // Image / Diagram directly from phone storage/gallery or URL fallback
+        Surface(
           modifier = Modifier.fillMaxWidth(),
-          singleLine = true,
-          keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-          keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
-        )
-
-        if (imageUrl.isNotBlank()) {
-          Spacer(modifier = Modifier.height(6.dp))
-          Surface(
-            shape = RoundedCornerShape(8.dp),
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier.fillMaxWidth().height(140.dp)
-          ) {
-            coil.compose.AsyncImage(
-              model = imageUrl,
-              contentDescription = "Diagram Preview",
-              modifier = Modifier.fillMaxSize(),
-              contentScale = androidx.compose.ui.layout.ContentScale.Fit
+          shape = RoundedCornerShape(10.dp),
+          color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f),
+          border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
+        ) {
+          Column(modifier = Modifier.padding(10.dp)) {
+            Text(
+              text = "Question Diagram / Photo (Optional):",
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onSurface
             )
+            Spacer(modifier = Modifier.height(6.dp))
+
+            if (imageUrl.isBlank()) {
+              OutlinedButton(
+                onClick = {
+                  photoPickerLauncher.launch(
+                    PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                  )
+                },
+                modifier = Modifier.fillMaxWidth().height(46.dp),
+                shape = RoundedCornerShape(8.dp),
+                enabled = !isCompressingImage
+              ) {
+                if (isCompressingImage) {
+                  CircularProgressIndicator(modifier = Modifier.size(16.dp), strokeWidth = 2.dp)
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text("Compressing Medium-Res Image...", style = MaterialTheme.typography.labelSmall)
+                } else {
+                  Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, modifier = Modifier.size(18.dp), tint = ProfessionalBlue)
+                  Spacer(modifier = Modifier.width(6.dp))
+                  Text("Upload Image / Diagram from Phone", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold))
+                }
+              }
+
+              TextButton(
+                onClick = { showManualUrlInput = !showManualUrlInput },
+                modifier = Modifier.align(Alignment.End)
+              ) {
+                Text(
+                  if (showManualUrlInput) "Hide URL option" else "Or paste image web link",
+                  style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp)
+                )
+              }
+
+              if (showManualUrlInput) {
+                OutlinedTextField(
+                  value = imageUrl,
+                  onValueChange = { imageUrl = it },
+                  label = { Text("Image / Diagram URL") },
+                  placeholder = { Text("https://...") },
+                  modifier = Modifier.fillMaxWidth(),
+                  singleLine = true,
+                  keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+                  keyboardActions = KeyboardActions(onNext = { focusRequesterOptA.requestFocus() })
+                )
+              }
+            } else {
+              Surface(
+                shape = RoundedCornerShape(8.dp),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth().height(150.dp)
+              ) {
+                Box(modifier = Modifier.fillMaxSize()) {
+                  coil.compose.AsyncImage(
+                    model = imageUrl,
+                    contentDescription = "Diagram Preview",
+                    modifier = Modifier.fillMaxSize(),
+                    contentScale = androidx.compose.ui.layout.ContentScale.Fit
+                  )
+                  Surface(
+                    color = Color.Black.copy(alpha = 0.65f),
+                    shape = RoundedCornerShape(bottomStart = 8.dp),
+                    modifier = Modifier.align(Alignment.TopEnd)
+                  ) {
+                    Row(
+                      modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+                      verticalAlignment = Alignment.CenterVertically
+                    ) {
+                      Icon(Icons.Default.Check, contentDescription = null, tint = SuccessGreen, modifier = Modifier.size(14.dp))
+                      Spacer(modifier = Modifier.width(4.dp))
+                      Text(
+                        if (imageUrl.startsWith("data:")) "Medium Res Attached (~40KB)" else "URL Attached",
+                        style = MaterialTheme.typography.labelSmall.copy(color = Color.White, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                      )
+                    }
+                  }
+                }
+              }
+
+              Spacer(modifier = Modifier.height(6.dp))
+              Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+              ) {
+                OutlinedButton(
+                  onClick = {
+                    photoPickerLauncher.launch(
+                      PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)
+                    )
+                  },
+                  modifier = Modifier.weight(1f).height(38.dp),
+                  shape = RoundedCornerShape(8.dp)
+                ) {
+                  Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(14.dp))
+                  Spacer(modifier = Modifier.width(4.dp))
+                  Text("Change Photo", style = MaterialTheme.typography.labelSmall)
+                }
+                OutlinedButton(
+                  onClick = { imageUrl = "" },
+                  modifier = Modifier.weight(1f).height(38.dp),
+                  colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.error),
+                  shape = RoundedCornerShape(8.dp)
+                ) {
+                  Icon(Icons.Default.Delete, contentDescription = null, modifier = Modifier.size(14.dp))
+                  Spacer(modifier = Modifier.width(4.dp))
+                  Text("Remove", style = MaterialTheme.typography.labelSmall)
+                }
+              }
+            }
           }
         }
 
@@ -2585,40 +2780,40 @@ fun AddQuestionDialog(
             value = optionA,
             onValueChange = { optionA = it },
             label = { Text("Option A") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().focusRequester(focusRequesterOptA),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
+            keyboardActions = KeyboardActions(onNext = { focusRequesterOptB.requestFocus() })
           )
           Spacer(modifier = Modifier.height(8.dp))
           OutlinedTextField(
             value = optionB,
             onValueChange = { optionB = it },
             label = { Text("Option B") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().focusRequester(focusRequesterOptB),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
+            keyboardActions = KeyboardActions(onNext = { focusRequesterOptC.requestFocus() })
           )
           Spacer(modifier = Modifier.height(8.dp))
           OutlinedTextField(
             value = optionC,
             onValueChange = { optionC = it },
             label = { Text("Option C") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().focusRequester(focusRequesterOptC),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
+            keyboardActions = KeyboardActions(onNext = { focusRequesterOptD.requestFocus() })
           )
           Spacer(modifier = Modifier.height(8.dp))
           OutlinedTextField(
             value = optionD,
             onValueChange = { optionD = it },
             label = { Text("Option D") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().focusRequester(focusRequesterOptD),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
+            keyboardActions = KeyboardActions(onNext = { focusRequesterAnswer.requestFocus() })
           )
         } else if (questionType == "TRUE_FALSE") {
           Spacer(modifier = Modifier.height(8.dp))
@@ -2626,20 +2821,20 @@ fun AddQuestionDialog(
             value = optionA.ifBlank { "True" },
             onValueChange = { optionA = it },
             label = { Text("Option A (True)") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().focusRequester(focusRequesterOptA),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
+            keyboardActions = KeyboardActions(onNext = { focusRequesterOptB.requestFocus() })
           )
           Spacer(modifier = Modifier.height(8.dp))
           OutlinedTextField(
             value = optionB.ifBlank { "False" },
             onValueChange = { optionB = it },
             label = { Text("Option B (False)") },
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().focusRequester(focusRequesterOptB),
             singleLine = true,
             keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-            keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
+            keyboardActions = KeyboardActions(onNext = { focusRequesterAnswer.requestFocus() })
           )
         }
 
@@ -2649,10 +2844,10 @@ fun AddQuestionDialog(
           value = correctAnswer,
           onValueChange = { correctAnswer = it.uppercase() },
           label = { Text("Correct Answer (A, B, C, D or exact answer)") },
-          modifier = Modifier.fillMaxWidth(),
+          modifier = Modifier.fillMaxWidth().focusRequester(focusRequesterAnswer),
           singleLine = true,
           keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
-          keyboardActions = KeyboardActions(onNext = { focusManager.moveFocus(FocusDirection.Down) })
+          keyboardActions = KeyboardActions(onNext = { focusRequesterExplanation.requestFocus() })
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -2661,7 +2856,9 @@ fun AddQuestionDialog(
           value = explanation,
           onValueChange = { explanation = it },
           label = { Text("Clinical Explanation & Rationale") },
-          modifier = Modifier.fillMaxWidth()
+          modifier = Modifier.fillMaxWidth().focusRequester(focusRequesterExplanation),
+          keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+          keyboardActions = KeyboardActions(onDone = { focusManager.clearFocus() })
         )
 
         Spacer(modifier = Modifier.height(8.dp))
@@ -3197,7 +3394,7 @@ fun AddSecondaryAdminDialog(
   var email by remember { mutableStateOf(preSelectedStudent?.email ?: "") }
   var phone by remember { mutableStateOf(preSelectedStudent?.phoneNumber ?: "") }
   var password by remember { mutableStateOf("") }
-  var assignedCourses by remember { mutableStateOf("RAD 101") }
+  var assignedCourses by remember { mutableStateOf(preSelectedStudent?.level?.takeIf { it.isNotBlank() } ?: "100 Level") }
   var errorMessage by remember { mutableStateOf<String?>(null) }
   var studentDropdownExpanded by remember { mutableStateOf(false) }
   var studentSearchQuery by remember { mutableStateOf("") }
@@ -3284,11 +3481,12 @@ fun AddSecondaryAdminDialog(
             onExpandedChange = { studentDropdownExpanded = it }
           ) {
             OutlinedTextField(
-              value = studentSearchQuery.ifBlank { "Tap to select user (${students.size} registered)" },
+              value = studentSearchQuery,
               onValueChange = {
                 studentSearchQuery = it
                 studentDropdownExpanded = true
               },
+              placeholder = { Text("Search / Pick User (${students.size} registered)") },
               label = { Text("Search / Pick User from List") },
               trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = studentDropdownExpanded) },
               modifier = Modifier.fillMaxWidth().menuAnchor(),
@@ -3321,6 +3519,7 @@ fun AddSecondaryAdminDialog(
                       fullName = st.fullName
                       email = st.email
                       phone = st.phoneNumber
+                      assignedCourses = st.level.ifBlank { "100 Level" }
                       studentDropdownExpanded = false
                       studentSearchQuery = ""
                     }
@@ -3379,7 +3578,8 @@ fun AddSecondaryAdminDialog(
               horizontalArrangement = Arrangement.spacedBy(6.dp)
             ) {
               rowLevels.forEach { lvl ->
-                val isSel = assignedCourses.contains(lvl, ignoreCase = true)
+                val isSel = assignedCourses.equals(lvl, ignoreCase = true) ||
+                    (lvl != "All Levels" && assignedCourses.contains(lvl, ignoreCase = true) && !assignedCourses.equals("All Levels", ignoreCase = true))
                 Surface(
                   shape = RoundedCornerShape(8.dp),
                   color = if (isSel) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
@@ -3718,7 +3918,11 @@ fun AdminLiveCloudSyncView(
       (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && currentUser.level.isBlank())
   val secondaryScopeLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
 
-  val availableLevels = listOf("100 Level", "200 Level", "300 Level", "400 Level", "500 Level")
+  val availableLevels = if (!isPrimary && secondaryScopeLevel != null && secondaryScopeLevel != "All Levels") {
+    listOf(secondaryScopeLevel)
+  } else {
+    listOf("100 Level", "200 Level", "300 Level", "400 Level", "500 Level")
+  }
   var selectedPipelineLevel by remember(secondaryScopeLevel) {
     mutableStateOf(secondaryScopeLevel ?: "100 Level")
   }
@@ -3909,42 +4113,87 @@ fun AdminLiveCloudSyncView(
       }
     }
 
-    // 2. Action Controls: Push & Pull
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-      Button(
-        onClick = {
-          feedbackMessage = "Pushing all local materials to cloud..."
-          adminViewModel.pushAllToCloud { report ->
-            feedbackMessage = report.message
+    // 2. Action Controls: Push & Pull (adaptive for all phone & tablet widths)
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+      val isCompact = maxWidth < 380.dp
+      if (isCompact) {
+        Column(
+          modifier = Modifier.fillMaxWidth(),
+          verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+          Button(
+            onClick = {
+              feedbackMessage = "Pushing all local materials to cloud..."
+              adminViewModel.pushAllToCloud { report ->
+                feedbackMessage = report.message
+              }
+            },
+            enabled = !isSyncing,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            shape = RoundedCornerShape(10.dp)
+          ) {
+            Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Push All Live", style = MaterialTheme.typography.labelLarge)
           }
-        },
-        enabled = !isSyncing,
-        modifier = Modifier.weight(1f).height(48.dp),
-        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
-        shape = RoundedCornerShape(10.dp)
-      ) {
-        Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(modifier = Modifier.width(6.dp))
-        Text("Push All Live", style = MaterialTheme.typography.labelLarge)
-      }
 
-      OutlinedButton(
-        onClick = {
-          feedbackMessage = "Checking cloud for latest questions..."
-          adminViewModel.pullLatestFromCloud { report ->
-            feedbackMessage = report.message
+          OutlinedButton(
+            onClick = {
+              feedbackMessage = "Checking cloud for latest questions..."
+              adminViewModel.pullLatestFromCloud { report ->
+                feedbackMessage = report.message
+              }
+            },
+            enabled = !isSyncing,
+            modifier = Modifier.fillMaxWidth().height(48.dp),
+            shape = RoundedCornerShape(10.dp)
+          ) {
+            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Pull from Cloud", style = MaterialTheme.typography.labelLarge)
           }
-        },
-        enabled = !isSyncing,
-        modifier = Modifier.weight(1f).height(48.dp),
-        shape = RoundedCornerShape(10.dp)
-      ) {
-        Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
-        Spacer(modifier = Modifier.width(6.dp))
-        Text("Pull from Cloud", style = MaterialTheme.typography.labelLarge)
+        }
+      } else {
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+          Button(
+            onClick = {
+              feedbackMessage = "Pushing all local materials to cloud..."
+              adminViewModel.pushAllToCloud { report ->
+                feedbackMessage = report.message
+              }
+            },
+            enabled = !isSyncing,
+            modifier = Modifier.weight(1f).height(48.dp),
+            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+            shape = RoundedCornerShape(10.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp)
+          ) {
+            Icon(Icons.Default.CloudUpload, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Push All Live", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+          }
+
+          OutlinedButton(
+            onClick = {
+              feedbackMessage = "Checking cloud for latest questions..."
+              adminViewModel.pullLatestFromCloud { report ->
+                feedbackMessage = report.message
+              }
+            },
+            enabled = !isSyncing,
+            modifier = Modifier.weight(1f).height(48.dp),
+            shape = RoundedCornerShape(10.dp),
+            contentPadding = PaddingValues(horizontal = 8.dp)
+          ) {
+            Icon(Icons.Default.CloudDownload, contentDescription = null, modifier = Modifier.size(18.dp))
+            Spacer(modifier = Modifier.width(6.dp))
+            Text("Pull from Cloud", style = MaterialTheme.typography.labelLarge, maxLines = 1)
+          }
+        }
       }
     }
 

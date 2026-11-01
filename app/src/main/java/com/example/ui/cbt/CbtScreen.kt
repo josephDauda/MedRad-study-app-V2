@@ -333,35 +333,76 @@ fun CbtScreen(
             .padding(24.dp),
           contentAlignment = Alignment.Center
         ) {
-          Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+          Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, BorderSubtle),
+            elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
           ) {
-            Icon(
-              imageVector = Icons.Default.HelpOutline,
-              contentDescription = null,
-              modifier = Modifier.size(56.dp),
-              tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.7f)
-            )
-            Spacer(modifier = Modifier.height(16.dp))
-            Text(
-              text = "Question Bank Empty",
-              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-              color = MaterialTheme.colorScheme.onSurface
-            )
-            Spacer(modifier = Modifier.height(6.dp))
-            Text(
-              text = "No published questions are currently assigned to ${sessionState.courseTitle.ifBlank { "this course" }}. Questions created by administrators will appear here.",
-              style = MaterialTheme.typography.bodySmall,
-              color = MaterialTheme.colorScheme.onSurfaceVariant,
-              textAlign = androidx.compose.ui.text.style.TextAlign.Center
-            )
-            Spacer(modifier = Modifier.height(20.dp))
-            Button(
-              onClick = onNavigateBack,
-              shape = RoundedCornerShape(10.dp)
+            Column(
+              modifier = Modifier.padding(24.dp),
+              horizontalAlignment = Alignment.CenterHorizontally,
+              verticalArrangement = Arrangement.Center
             ) {
-              Text("Return to Dashboard")
+              Box(
+                modifier = Modifier
+                  .size(64.dp)
+                  .clip(CircleShape)
+                  .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
+                contentAlignment = Alignment.Center
+              ) {
+                Icon(
+                  imageVector = Icons.Default.HelpOutline,
+                  contentDescription = null,
+                  modifier = Modifier.size(36.dp),
+                  tint = MaterialTheme.colorScheme.primary
+                )
+              }
+
+              Spacer(modifier = Modifier.height(16.dp))
+
+              Surface(
+                shape = RoundedCornerShape(20.dp),
+                color = ProfessionalBlue.copy(alpha = 0.12f)
+              ) {
+                Text(
+                  text = "Course Curriculum Isolated",
+                  style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                  color = ProfessionalBlue,
+                  modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp)
+                )
+              }
+
+              Spacer(modifier = Modifier.height(10.dp))
+
+              Text(
+                text = "Questions Not Ready Yet • Coming Soon",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onSurface,
+                textAlign = TextAlign.Center
+              )
+
+              Spacer(modifier = Modifier.height(8.dp))
+
+              Text(
+                text = "Official examination questions for ${sessionState.courseTitle.ifBlank { "this course" }} are currently being curated by departmental examiners and lecturers. Questions from other courses are strictly isolated to preserve exam standards and curriculum integrity.",
+                style = MaterialTheme.typography.bodySmall.copy(lineHeight = 20.sp),
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center
+              )
+
+              Spacer(modifier = Modifier.height(20.dp))
+
+              Button(
+                onClick = onNavigateBack,
+                shape = RoundedCornerShape(10.dp),
+                modifier = Modifier.fillMaxWidth().height(48.dp)
+              ) {
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("Return to Dashboard", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+              }
             }
           }
         }

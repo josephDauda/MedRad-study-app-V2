@@ -31,6 +31,9 @@ class SupabaseClient(private val context: Context) {
   private val prefs = context.getSharedPreferences("medrad_supabase_session", Context.MODE_PRIVATE)
 
   fun getAuthToken(): String? {
+    if (isSessionExpired()) {
+      return null
+    }
     return prefs.getString("access_token", null)
   }
 
@@ -76,24 +79,77 @@ class SupabaseClient(private val context: Context) {
     return prefs.getString("user_id", null)
   }
 
-  private fun buildHeaders(requestBuilder: Request.Builder) {
+  private fun buildHeaders(requestBuilder: Request.Builder, overrideToken: String? = null) {
     val apiKey = SupabaseConfig.getPublishableKey(context)
-    val token = getAuthToken() ?: apiKey
+    val token = overrideToken ?: getAuthToken() ?: apiKey
     requestBuilder.addHeader("apikey", apiKey)
     requestBuilder.addHeader("Authorization", "Bearer $token")
+  }
+
+  private suspend fun executeWithAuthRetry(
+    requestFactory: (authToken: String) -> Request
+  ): Pair<okhttp3.Response, String> {
+    val apiKey = SupabaseConfig.getPublishableKey(context)
+    var activeToken = getAuthToken() ?: apiKey
+
+    var response = okHttpClient.newCall(requestFactory(activeToken)).execute()
+    var body = response.body?.string() ?: ""
+
+    // Intercept HTTP 401 with JWT expired / PGRST303 and auto-recover
+    if (response.code == 401 && (body.contains("JWT expired", ignoreCase = true) || body.contains("PGRST303") || body.contains("invalid claim", ignoreCase = true))) {
+      Log.w(tag, "Supabase 401 JWT expired detected. Attempting automatic refresh or fallback to publishable API key...")
+      var refreshed = false
+      val refreshToken = getRefreshToken()
+      if (!refreshToken.isNullOrBlank()) {
+        try {
+          val refreshRes = authRefreshToken()
+          if (refreshRes.isSuccess) {
+            val freshResp = refreshRes.getOrNull()
+            if (freshResp != null && !freshResp.accessToken.isNullOrBlank()) {
+              refreshed = true
+              activeToken = freshResp.accessToken
+              Log.i(tag, "Supabase JWT session refreshed successfully.")
+            }
+          }
+        } catch (e: Exception) {
+          Log.w(tag, "Token refresh failed: ${e.message}")
+        }
+      }
+
+      if (!refreshed) {
+        // Expired token is unusable, clear it and fall back to public anon API key
+        clearSession()
+        activeToken = apiKey
+        Log.i(tag, "Cleared expired JWT session; falling back to publishable anon key.")
+      }
+
+      // Retry request with fresh token or anon apiKey
+      try {
+        response = okHttpClient.newCall(requestFactory(activeToken)).execute()
+        body = response.body?.string() ?: ""
+      } catch (e: Exception) {
+        Log.e(tag, "Retry failed: ${e.message}")
+      }
+    }
+
+    return Pair(response, body)
   }
 
   suspend fun callRpc(rpcName: String, jsonPayload: String): Result<String> = withContext(Dispatchers.IO) {
     try {
       val baseUrl = SupabaseConfig.getUrl(context)
       val url = "$baseUrl/rest/v1/rpc/$rpcName"
-      val requestBuilder = Request.Builder()
-        .url(url)
-        .post(jsonPayload.toRequestBody(jsonMediaType))
+      val apiKey = SupabaseConfig.getPublishableKey(context)
 
-      buildHeaders(requestBuilder)
-      val response = okHttpClient.newCall(requestBuilder.build()).execute()
-      val body = response.body?.string() ?: ""
+      val (response, body) = executeWithAuthRetry { token ->
+        Request.Builder()
+          .url(url)
+          .post(jsonPayload.toRequestBody(jsonMediaType))
+          .addHeader("apikey", apiKey)
+          .addHeader("Authorization", "Bearer $token")
+          .build()
+      }
+
       if (response.isSuccessful) {
         Result.success(body)
       } else {
@@ -109,10 +165,17 @@ class SupabaseClient(private val context: Context) {
     try {
       val baseUrl = SupabaseConfig.getUrl(context)
       val url = "$baseUrl/rest/v1/$endpoint"
-      val requestBuilder = Request.Builder().url(url).get()
-      buildHeaders(requestBuilder)
-      val response = okHttpClient.newCall(requestBuilder.build()).execute()
-      val body = response.body?.string() ?: ""
+      val apiKey = SupabaseConfig.getPublishableKey(context)
+
+      val (response, body) = executeWithAuthRetry { token ->
+        Request.Builder()
+          .url(url)
+          .get()
+          .addHeader("apikey", apiKey)
+          .addHeader("Authorization", "Bearer $token")
+          .build()
+      }
+
       if (response.isSuccessful) {
         Result.success(body)
       } else {
@@ -128,19 +191,19 @@ class SupabaseClient(private val context: Context) {
     try {
       val baseUrl = SupabaseConfig.getUrl(context)
       val url = "$baseUrl/rest/v1/$endpoint"
-      val requestBuilder = Request.Builder()
-        .url(url)
-        .post(json.toRequestBody(jsonMediaType))
+      val apiKey = SupabaseConfig.getPublishableKey(context)
+      val preferVal = if (upsert) "resolution=merge-duplicates,return=representation" else "return=representation"
 
-      buildHeaders(requestBuilder)
-      if (upsert) {
-        requestBuilder.addHeader("Prefer", "resolution=merge-duplicates,return=representation")
-      } else {
-        requestBuilder.addHeader("Prefer", "return=representation")
+      val (response, body) = executeWithAuthRetry { token ->
+        Request.Builder()
+          .url(url)
+          .post(json.toRequestBody(jsonMediaType))
+          .addHeader("apikey", apiKey)
+          .addHeader("Authorization", "Bearer $token")
+          .addHeader("Prefer", preferVal)
+          .build()
       }
 
-      val response = okHttpClient.newCall(requestBuilder.build()).execute()
-      val body = response.body?.string() ?: ""
       if (response.isSuccessful) {
         Result.success(body)
       } else {
@@ -156,15 +219,18 @@ class SupabaseClient(private val context: Context) {
     try {
       val baseUrl = SupabaseConfig.getUrl(context)
       val url = "$baseUrl/rest/v1/$endpoint"
-      val requestBuilder = Request.Builder()
-        .url(url)
-        .patch(json.toRequestBody(jsonMediaType))
+      val apiKey = SupabaseConfig.getPublishableKey(context)
 
-      buildHeaders(requestBuilder)
-      requestBuilder.addHeader("Prefer", "return=representation")
+      val (response, body) = executeWithAuthRetry { token ->
+        Request.Builder()
+          .url(url)
+          .patch(json.toRequestBody(jsonMediaType))
+          .addHeader("apikey", apiKey)
+          .addHeader("Authorization", "Bearer $token")
+          .addHeader("Prefer", "return=representation")
+          .build()
+      }
 
-      val response = okHttpClient.newCall(requestBuilder.build()).execute()
-      val body = response.body?.string() ?: ""
       if (response.isSuccessful) {
         Result.success(body)
       } else {
@@ -180,15 +246,24 @@ class SupabaseClient(private val context: Context) {
     try {
       val baseUrl = SupabaseConfig.getUrl(context)
       val url = "$baseUrl/rest/v1/$endpoint"
-      val requestBuilder = Request.Builder().url(url).delete()
-      buildHeaders(requestBuilder)
-      val response = okHttpClient.newCall(requestBuilder.build()).execute()
+      val apiKey = SupabaseConfig.getPublishableKey(context)
+
+      val (response, _) = executeWithAuthRetry { token ->
+        Request.Builder()
+          .url(url)
+          .delete()
+          .addHeader("apikey", apiKey)
+          .addHeader("Authorization", "Bearer $token")
+          .build()
+      }
+
       if (response.isSuccessful) {
         Result.success(true)
       } else {
         Result.failure(Exception("Supabase DELETE error: HTTP ${response.code}"))
       }
     } catch (e: Exception) {
+      Log.e(tag, "restDelete failed for $endpoint: ${e.message}")
       Result.failure(e)
     }
   }

@@ -241,25 +241,51 @@ class DashboardViewModel(
 
   private var currentStudentLevel: String? = null
 
-  private val _dailySprintConfig = MutableStateFlow(com.example.data.sync.DailyCbtSprintConfig())
+  private val _dailySprintConfig = MutableStateFlow(cloudSyncManager?.dailySprintConfig?.value ?: com.example.data.sync.DailyCbtSprintConfig())
   val dailySprintConfig: StateFlow<com.example.data.sync.DailyCbtSprintConfig> = _dailySprintConfig.asStateFlow()
 
-  private val _practiceCardConfig = MutableStateFlow(com.example.data.sync.PracticeCardConfig())
+  private val _practiceCardConfig = MutableStateFlow(cloudSyncManager?.practiceCardConfig?.value ?: com.example.data.sync.PracticeCardConfig())
   val practiceCardConfig: StateFlow<com.example.data.sync.PracticeCardConfig> = _practiceCardConfig.asStateFlow()
 
-  private val _mockCardConfig = MutableStateFlow(com.example.data.sync.MockCardConfig())
+  private val _mockCardConfig = MutableStateFlow(cloudSyncManager?.mockCardConfig?.value ?: com.example.data.sync.MockCardConfig())
   val mockCardConfig: StateFlow<com.example.data.sync.MockCardConfig> = _mockCardConfig.asStateFlow()
 
   val globalCardStyle = cloudSyncManager?.globalCardStyle ?: MutableStateFlow("NAVY_GOLD")
 
   init {
     viewModelScope.launch {
+      cloudSyncManager?.dailySprintConfig?.collect { sprint ->
+        if (currentStudentLevel.isNullOrBlank()) {
+          _dailySprintConfig.value = sprint
+        }
+      }
+    }
+    viewModelScope.launch {
+      cloudSyncManager?.practiceCardConfig?.collect { practice ->
+        if (currentStudentLevel.isNullOrBlank()) {
+          _practiceCardConfig.value = practice
+        }
+      }
+    }
+    viewModelScope.launch {
+      cloudSyncManager?.mockCardConfig?.collect { mock ->
+        if (currentStudentLevel.isNullOrBlank()) {
+          _mockCardConfig.value = mock
+        }
+      }
+    }
+    viewModelScope.launch {
       cloudSyncManager?.levelPipelineUpdateTrigger?.collect {
-        currentStudentLevel?.let { lvl ->
-          cloudSyncManager.let { mgr ->
+        val lvl = currentStudentLevel
+        cloudSyncManager?.let { mgr ->
+          if (!lvl.isNullOrBlank()) {
             _dailySprintConfig.value = mgr.getDailySprintConfigForLevel(lvl)
             _practiceCardConfig.value = mgr.getPracticeCardConfigForLevel(lvl)
             _mockCardConfig.value = mgr.getMockCardConfigForLevel(lvl)
+          } else {
+            _dailySprintConfig.value = mgr.dailySprintConfig.value
+            _practiceCardConfig.value = mgr.practiceCardConfig.value
+            _mockCardConfig.value = mgr.mockCardConfig.value
           }
         }
       }
@@ -377,24 +403,28 @@ class CbtViewModel(
       }
 
       if (questions.isEmpty()) {
+        val isGeneral = effectiveCourseId == 0L || effectiveCourseId == 9999L
         val fallback = cbtRepository.getExamQuestions(
           courseId = effectiveCourseId,
           totalQuestions = questionCount,
-          allowDepartmentalFallback = true,
+          allowDepartmentalFallback = isGeneral,
           studentLevel = user.level
         )
         val levelFiltered = fallback.filter { q ->
+          val matchesCourse = if (effectiveCourseId > 0 && !isGeneral) q.courseId == effectiveCourseId else true
           val parentCourse = academicRepository?.getCourseById(q.courseId)
-          LevelClassifier.matchesUserLevel(user, parentCourse?.code, parentCourse?.level)
+          matchesCourse && LevelClassifier.matchesUserLevel(user, parentCourse?.code, parentCourse?.level)
         }
-        questions = levelFiltered
-        if (questions.isEmpty()) {
+        questions = if (levelFiltered.isNotEmpty()) {
+          levelFiltered
+        } else if (isGeneral) {
           val allPublished = academicRepository?.getAllQuestionsList()?.filter { it.isPublished } ?: emptyList()
-          val levelMatching = allPublished.filter { q ->
+          allPublished.filter { q ->
             val parentCourse = academicRepository?.getCourseById(q.courseId)
             LevelClassifier.matchesUserLevel(user, parentCourse?.code, parentCourse?.level)
-          }
-          questions = levelMatching.take(questionCount)
+          }.take(questionCount)
+        } else {
+          emptyList()
         }
       }
 
@@ -435,8 +465,21 @@ class CbtViewModel(
         Log.w("CbtViewModel", "Cloud sync on mock exam start notice: ${e.message}")
       }
 
-      val mockConfig = cloudSyncManager?.mockCardConfig?.value ?: com.example.data.sync.MockCardConfig()
+      val mockConfig = cloudSyncManager?.getMockCardConfigForLevel(user.level)
+        ?: cloudSyncManager?.mockCardConfig?.value
+        ?: com.example.data.sync.MockCardConfig()
       val isExpired = mockConfig.deadlineTimestamp > 0 && System.currentTimeMillis() >= mockConfig.deadlineTimestamp
+      val course = academicRepository?.getCourseById(exam.courseId)
+      val code = course?.code ?: mockConfig.courseCode.ifBlank { "${user.level} CBT" }
+      val title = course?.title ?: mockConfig.courseTitle.ifBlank { "${user.level} Mock Examination" }
+      val displayExamTitle = if (mockConfig.isConfigured && mockConfig.examTitle.isNotBlank()) {
+        mockConfig.examTitle
+      } else if (exam.title.isNotBlank()) {
+        exam.title
+      } else {
+        "$code — $title Mock Exam"
+      }
+
       if (isExpired) {
         _sessionState.value = CbtSessionState(
           isExamMode = true,
@@ -444,23 +487,21 @@ class CbtViewModel(
           isLoading = false,
           deadlineString = mockConfig.deadlineString,
           deadlineTimestamp = mockConfig.deadlineTimestamp,
-          sessionId = mockConfig.sessionId,
-          examTitle = mockConfig.examTitle.ifBlank { "Mock Exam Session Closed" }
+          sessionId = mockConfig.sessionId.ifBlank { "Session 1" },
+          examTitle = displayExamTitle
         )
         return@launch
       }
 
-      val course = academicRepository?.getCourseById(exam.courseId)
-      val code = course?.code ?: mockConfig.courseCode.ifBlank { "${user.level} CBT" }
-      val title = course?.title ?: mockConfig.courseTitle.ifBlank { "${user.level} Mock Examination" }
-      val displayExamTitle = if (exam.title.isNotBlank()) exam.title else mockConfig.examTitle.ifBlank { "$code — $title Mock Exam" }
-
-      // 0. Database-enforced Single Attempt Policy: Prevent candidate retakes once submitted
+      // 0. Database-enforced Single Attempt Policy per Session:
+      // Allow users to take new exam sessions (Session 1, Session 2, etc.) created by admins
+      val activeSession = mockConfig.sessionId.trim().ifBlank { "Session 1" }
       val existingAttempt = cbtRepository.getExistingAttemptForUserAndExam(
         userId = user.id,
         examId = exam.id.takeIf { it > 0 },
         examTitle = displayExamTitle,
-        courseCode = code
+        courseCode = code,
+        sessionId = activeSession
       )
       if (existingAttempt != null) {
         _sessionState.value = CbtSessionState(
@@ -471,6 +512,7 @@ class CbtViewModel(
           isSubmitted = true,
           isAlreadyAttempted = true,
           submittedAttemptId = existingAttempt.id,
+          sessionId = activeSession,
           isLoading = false
         )
         return@launch
@@ -493,31 +535,30 @@ class CbtViewModel(
 
       if (resolvedQuestions.isEmpty()) {
         val qLimit = maxOf(exam.totalQuestions, mockConfig.questionCount.takeIf { it > 0 } ?: 15)
+        val isGeneralExam = (exam.courseId == 0L || exam.courseId == 9999L) && !code.contains("RAD", ignoreCase = true) && !code.contains("BIO", ignoreCase = true)
         val examQuestions = cbtRepository.getExamQuestions(
           courseId = exam.courseId,
           totalQuestions = qLimit,
           examRemoteId = exam.remoteId,
-          allowDepartmentalFallback = true,
+          allowDepartmentalFallback = isGeneralExam,
           studentLevel = user.level
         )
-        // Strictly filter candidate questions to the student's registered level so Level 100, 200, 300, 400, 500, 600 concurrent exams never mix
+        // Strictly filter candidate questions to the student's registered level and course ID
         val levelMatchingExamQ = examQuestions.filter { q ->
+          val matchesCourse = if (exam.courseId > 0 && !isGeneralExam) q.courseId == exam.courseId else true
           val parentCourse = academicRepository?.getCourseById(q.courseId)
-          LevelClassifier.matchesUserLevel(user, parentCourse?.code, parentCourse?.level)
+          matchesCourse && LevelClassifier.matchesUserLevel(user, parentCourse?.code, parentCourse?.level)
         }
         resolvedQuestions = if (levelMatchingExamQ.isNotEmpty()) {
           levelMatchingExamQ
-        } else {
-          // If no questions specific to this course ID, pull from published questions bank strictly matching candidate's level
+        } else if (isGeneralExam) {
           val allQ = academicRepository?.getAllQuestionsList() ?: emptyList()
-          val levelMatchingBank = allQ.filter { q ->
+          allQ.filter { q ->
             q.isPublished && LevelClassifier.matchesUserLevel(user, academicRepository?.getCourseById(q.courseId)?.code, academicRepository?.getCourseById(q.courseId)?.level)
-          }
-          if (levelMatchingBank.isNotEmpty()) {
-            levelMatchingBank.take(qLimit)
-          } else {
-            emptyList()
-          }
+          }.take(qLimit)
+        } else {
+          // Strictly empty for course-specific exam with no questions set yet
+          emptyList()
         }
       }
 
@@ -545,7 +586,7 @@ class CbtViewModel(
   private fun startTimer(user: UserEntity) {
     timerJob?.cancel()
     timerJob = viewModelScope.launch {
-      val mockConfig = cloudSyncManager?.mockCardConfig?.value
+      val mockConfig = cloudSyncManager?.getMockCardConfigForLevel(user.level) ?: cloudSyncManager?.mockCardConfig?.value
       while (_sessionState.value.timeRemainingSeconds > 0 && !_sessionState.value.isSubmitted) {
         delay(1000)
         val newTime = _sessionState.value.timeRemainingSeconds - 1
@@ -658,6 +699,13 @@ class CbtViewModel(
         qObj.put("chosen", chosen ?: "")
         qObj.put("correct", question.correctAnswer)
         qObj.put("isCorrect", isCorrect)
+        qObj.put("question_text", question.questionText)
+        qObj.put("option_a", question.optionA)
+        qObj.put("option_b", question.optionB)
+        qObj.put("option_c", question.optionC)
+        qObj.put("option_d", question.optionD)
+        qObj.put("explanation", question.explanation)
+        qObj.put("image_url", question.imageUrl ?: "")
         jsonAnswers.put(question.id.toString(), qObj)
       }
 
@@ -671,9 +719,18 @@ class CbtViewModel(
 
       val isMockExam = state.isExamMode && (
         state.examTitle.contains("Mock", ignoreCase = true) ||
-        state.examTitle.contains("CBT", ignoreCase = true)
+        state.examTitle.contains("CBT", ignoreCase = true) ||
+        state.examTitle.contains("Assessment", ignoreCase = true) ||
+        state.examTitle.contains("Continuous", ignoreCase = true) ||
+        state.examTitle.contains("Exam", ignoreCase = true) ||
+        state.sessionId.isNotBlank() ||
+        state.examId != null
       )
-      val mockConfig = cloudSyncManager?.mockCardConfig?.value ?: com.example.data.sync.MockCardConfig()
+      val mockConfig = cloudSyncManager?.getMockCardConfigForLevel(user.level)
+        ?: cloudSyncManager?.mockCardConfig?.value
+        ?: com.example.data.sync.MockCardConfig()
+      val activeSession = state.sessionId.takeIf { it.isNotBlank() }
+        ?: (if (isMockExam && mockConfig.sessionId.isNotBlank()) mockConfig.sessionId else "Session 1")
 
       // Attach detailed candidate & session metadata for isolated score sheet generation
       val metaObj = JSONObject().apply {
@@ -682,11 +739,15 @@ class CbtViewModel(
         put("student_level", user.level)
         put("student_phone", user.phoneNumber)
         put("matric_number", if (user.phoneNumber.isNotBlank()) user.phoneNumber else user.email)
-        put("session_id", if (isMockExam && mockConfig.sessionId.isNotBlank()) mockConfig.sessionId else "Session 1")
+        put("session_id", activeSession)
         put("reveal_mode", if (isMockExam) mockConfig.revealMode else "INSTANT")
         put("deadline_string", if (isMockExam) mockConfig.deadlineString else "")
         put("deadline_timestamp", if (isMockExam) mockConfig.deadlineTimestamp else 0L)
         put("is_mock_exam", isMockExam)
+        put("admin_level", user.level)
+        put("assigned_level", user.level)
+        put("secondary_admin_level", user.level)
+        put("question_ids", state.questions.map { it.id }.joinToString(","))
         put("time_spent_seconds", if (timeSpent < 0) 0 else timeSpent)
         put("submitted_at", System.currentTimeMillis())
         if (!submissionReason.isNullOrBlank()) {
@@ -740,9 +801,75 @@ class ResultsViewModel(
       val res = cbtRepository.getAttemptById(attemptId)
       _attempt.value = res
       if (res != null) {
-        // Load questions for review
-        val qList = cbtRepository.getPracticeQuestions(1L, 20)
-        _questions.value = qList
+        val answersJson = try {
+          JSONObject(res.answersJson)
+        } catch (_: Exception) {
+          JSONObject()
+        }
+        val meta = answersJson.optJSONObject("_meta")
+        val qIdsStr = meta?.optString("question_ids", "") ?: ""
+        val qIds = if (qIdsStr.isNotBlank()) {
+          qIdsStr.split(",").mapNotNull { it.trim().toLongOrNull() }
+        } else {
+          answersJson.keys().asSequence().mapNotNull { it.toLongOrNull() }.toList()
+        }
+
+        val dbQuestions = if (qIds.isNotEmpty()) {
+          val fetched = cbtRepository.getQuestionsByIds(qIds)
+          if (fetched.isNotEmpty()) {
+            val qMap = fetched.associateBy { it.id }
+            qIds.mapNotNull { qMap[it] }
+          } else {
+            emptyList()
+          }
+        } else {
+          emptyList()
+        }
+
+        if (dbQuestions.isNotEmpty()) {
+          _questions.value = dbQuestions
+        } else {
+          // Reconstruct QuestionEntity list directly from answersJson snapshots so review is never empty
+          val reconstructed = mutableListOf<QuestionEntity>()
+          val keys = if (qIds.isNotEmpty()) qIds.map { it.toString() } else answersJson.keys().asSequence().filter { it != "_meta" }.toList()
+
+          for (k in keys) {
+            val qObj = answersJson.optJSONObject(k) ?: continue
+            val qText = qObj.optString("question_text", "").ifBlank { "Question $k" }
+            val optA = qObj.optString("option_a", "Option A")
+            val optB = qObj.optString("option_b", "Option B")
+            val optC = qObj.optString("option_c", "Option C")
+            val optD = qObj.optString("option_d", "Option D")
+            val correct = qObj.optString("correct", "A").ifBlank { "A" }
+            val explanation = qObj.optString("explanation", "Standard radiographic clinical rationale.")
+            val imgUrl = qObj.optString("image_url", "").takeIf { it.isNotBlank() }
+            val qId = k.toLongOrNull() ?: (reconstructed.size + 1L)
+
+            reconstructed.add(
+              QuestionEntity(
+                id = qId,
+                courseId = 0L,
+                topicId = 0L,
+                questionText = qText,
+                optionA = optA,
+                optionB = optB,
+                optionC = optC,
+                optionD = optD,
+                correctAnswer = correct,
+                explanation = explanation,
+                imageUrl = imgUrl
+              )
+            )
+          }
+
+          if (reconstructed.isNotEmpty()) {
+            _questions.value = reconstructed
+          } else {
+            val fallbackCourseId = res.examId ?: 1L
+            val qList = cbtRepository.getPracticeQuestions(fallbackCourseId, 20)
+            _questions.value = qList
+          }
+        }
       }
     }
   }
@@ -984,6 +1111,20 @@ class AdminViewModel(
     viewModelScope.launch {
       val report = cloudSyncManager?.exportStudentScores(courseTitle) ?: "No records found."
       onResult(report)
+    }
+  }
+
+  fun deleteAttempt(attempt: ExamAttemptEntity, onComplete: ((Boolean) -> Unit)? = null) {
+    viewModelScope.launch {
+      val res = adminRepository.deleteAttempt(attempt)
+      onComplete?.invoke(res.isSuccess)
+    }
+  }
+
+  fun deleteAttempts(attempts: List<ExamAttemptEntity>, onComplete: ((Int) -> Unit)? = null) {
+    viewModelScope.launch {
+      val res = adminRepository.deleteAttempts(attempts)
+      onComplete?.invoke(res.getOrDefault(0))
     }
   }
 

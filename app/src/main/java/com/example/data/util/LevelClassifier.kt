@@ -16,10 +16,35 @@ object LevelClassifier {
   fun normalizeLevel(raw: String?): String {
     if (raw.isNullOrBlank()) return "200 Level"
     val clean = raw.trim()
+    if (clean.equals("All", ignoreCase = true) || clean.equals("All Levels", ignoreCase = true) || clean.equals("ALL", ignoreCase = true)) {
+      return "All Levels"
+    }
     val match = Regex("""([1-9])\d{2}""").find(clean)
       ?: Regex("""\b([1-9])\b""").find(clean)
     val digit = match?.groupValues?.getOrNull(1) ?: return if (clean.contains("1")) "100 Level" else "200 Level"
     return "${digit}00 Level"
+  }
+
+  /**
+   * Resolves the exact academic level assigned to a secondary administrator.
+   * Returns null if user is Primary Admin or not an admin.
+   * Returns "All Levels" if assigned to all levels.
+   * Otherwise returns "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", or "600 Level".
+   */
+  fun getSecondaryAdminLevel(admin: UserEntity?): String? {
+    if (admin == null || admin.role != "ADMIN") return null
+    val isPrimary = admin.adminRole.equals("PRIMARY", ignoreCase = true) ||
+        admin.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
+        (admin.adminRole.isBlank() && admin.assignedCourses.isBlank() && (admin.level.isBlank() || admin.level.equals("Staff", ignoreCase = true)))
+    if (isPrimary) return null
+
+    val raw = when {
+      !admin.level.isNullOrBlank() && !admin.level.contains("Staff", ignoreCase = true) -> admin.level
+      !admin.assignedCourses.isNullOrBlank() -> admin.assignedCourses
+      else -> null
+    }
+    if (raw.isNullOrBlank() || raw.contains("All", ignoreCase = true)) return "All Levels"
+    return normalizeLevel(raw)
   }
 
   /**
@@ -63,17 +88,10 @@ object LevelClassifier {
   ): Boolean {
     if (user == null) return true
     if (user.role == "ADMIN") {
-      val isPrimary = user.adminRole.equals("PRIMARY", ignoreCase = true) ||
-          user.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-          user.adminRole.isBlank()
-      if (isPrimary) return true
-
-      // Secondary Admin
-      val assigned = user.assignedCourses.ifBlank { user.level }
-      if (assigned.isBlank() || assigned.equals("ALL", ignoreCase = true)) return true
-      val assignedLevel = normalizeLevel(assigned)
+      val secLevel = getSecondaryAdminLevel(user) ?: return true // Primary Admin matches all
+      if (secLevel == "All Levels") return true
       val targetLevel = explicitLevel?.let { normalizeLevel(it) } ?: getLevelFromCourseCode(courseCode)
-      return targetLevel != null && assignedLevel == targetLevel
+      return targetLevel != null && secLevel == targetLevel
     }
 
     // Student: strictly match their registered level
@@ -96,6 +114,15 @@ object LevelClassifier {
     }
     if (normItem == null) return false
     return normTarget == normItem
+  }
+
+  /**
+   * Extracts standard 6-character course code from arbitrary string, e.g. "RAD 401 — Exam" -> "RAD 401"
+   */
+  fun extractCourseCode(text: String?): String? {
+    if (text.isNullOrBlank()) return null
+    val match = Regex("""\b([A-Za-z]{3}\s*\d{3})\b""").find(text)
+    return match?.groupValues?.getOrNull(1)?.uppercase()?.replace(Regex("""\s+"""), " ")
   }
 
   /**

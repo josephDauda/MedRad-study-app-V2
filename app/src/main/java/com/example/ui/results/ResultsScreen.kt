@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -19,6 +20,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.layout.ContentScale
+import coil.compose.AsyncImage
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.AssignmentTurnedIn
@@ -121,7 +124,14 @@ fun ResultsScreen(
       }
 
       val meta = answersJson.optJSONObject("_meta")
-      val isMockExam = meta?.optBoolean("is_mock_exam", false) ?: (att.examTitle.contains("Mock", ignoreCase = true) || att.examTitle.contains("CBT", ignoreCase = true))
+      val isMockExam = (meta?.optBoolean("is_mock_exam", false) == true) ||
+          att.examTitle.contains("Mock", ignoreCase = true) ||
+          att.examTitle.contains("Assessment", ignoreCase = true) ||
+          att.examTitle.contains("Continuous", ignoreCase = true) ||
+          att.examTitle.contains("CBT", ignoreCase = true) ||
+          att.examTitle.contains("Exam", ignoreCase = true) ||
+          (meta?.optString("session_id", "")?.isNotBlank() == true) ||
+          att.examId != null
       val revealMode = meta?.optString("reveal_mode", "INSTANT") ?: "INSTANT"
       val deadlineTimestamp = meta?.optLong("deadline_timestamp", 0L) ?: 0L
       val deadlineString = meta?.optString("deadline_string", "") ?: ""
@@ -356,61 +366,139 @@ fun ResultsScreen(
 
           // Action Buttons
           item {
-            Row(
+            Column(
               modifier = Modifier.fillMaxWidth(),
-              horizontalArrangement = Arrangement.spacedBy(12.dp)
+              verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-              OutlinedButton(
-                onClick = onPracticeAgain,
-                modifier = Modifier.weight(1f).height(48.dp),
-                shape = RoundedCornerShape(10.dp)
-              ) {
-                Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(modifier = Modifier.width(6.dp))
-                Text("Practice Again")
-              }
+              if (isMockExam) {
+                Surface(
+                  shape = RoundedCornerShape(10.dp),
+                  color = Color(0xFF0F766E).copy(alpha = 0.12f),
+                  border = BorderStroke(1.dp, Color(0xFF0F766E).copy(alpha = 0.35f)),
+                  modifier = Modifier.fillMaxWidth()
+                ) {
+                  Row(
+                    modifier = Modifier.padding(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                  ) {
+                    Icon(
+                      Icons.Default.CheckCircle,
+                      contentDescription = null,
+                      tint = Color(0xFF0F766E),
+                      modifier = Modifier.size(20.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                      text = "Official One-Attempt Policy: Your examination submission for $sessionId has been officially recorded. No re-attempts are permitted until your administrator publishes a new exam session.",
+                      style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                      color = MaterialTheme.colorScheme.onSurface
+                    )
+                  }
+                }
 
-              Button(
-                onClick = onNavigateToDashboard,
-                modifier = Modifier.weight(1f).height(48.dp),
-                colors = ButtonDefaults.buttonColors(
-                  containerColor = MaterialTheme.colorScheme.primary,
-                  contentColor = MaterialTheme.colorScheme.onPrimary
-                ),
-                shape = RoundedCornerShape(10.dp)
-              ) {
-                Text("Dashboard")
+                Button(
+                  onClick = onNavigateToDashboard,
+                  modifier = Modifier
+                    .fillMaxWidth()
+                    .height(50.dp)
+                    .testTag("results_return_dashboard_btn"),
+                  colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary
+                  ),
+                  shape = RoundedCornerShape(10.dp)
+                ) {
+                  Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null, modifier = Modifier.size(18.dp))
+                  Spacer(modifier = Modifier.width(8.dp))
+                  Text("Return to Dashboard", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold))
+                }
+              } else {
+                Row(
+                  modifier = Modifier.fillMaxWidth(),
+                  horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                  OutlinedButton(
+                    onClick = onPracticeAgain,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    shape = RoundedCornerShape(10.dp)
+                  ) {
+                    Icon(Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Text("Practice Again")
+                  }
+
+                  Button(
+                    onClick = onNavigateToDashboard,
+                    modifier = Modifier.weight(1f).height(48.dp),
+                    colors = ButtonDefaults.buttonColors(
+                      containerColor = MaterialTheme.colorScheme.primary,
+                      contentColor = MaterialTheme.colorScheme.onPrimary
+                    ),
+                    shape = RoundedCornerShape(10.dp)
+                  ) {
+                    Text("Dashboard")
+                  }
+                }
               }
             }
           }
 
           // Review Header
           item {
-            Text(
-              text = "Detailed Question Review & Explanations",
-              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-              color = MaterialTheme.colorScheme.onBackground,
-              modifier = Modifier.padding(top = 8.dp)
-            )
+            Column(modifier = Modifier.padding(top = 8.dp)) {
+              Text(
+                text = "Detailed Question Review & Explanations",
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                color = MaterialTheme.colorScheme.onBackground
+              )
+              Text(
+                text = "Complete answer breakdown, clinical rationales, and correct options for all questions.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+              )
+            }
           }
 
           // List of question reviews
-          itemsIndexed(questions) { index, question ->
-            val answerInfo = if (answersJson.has(question.id.toString())) {
-              answersJson.getJSONObject(question.id.toString())
-            } else {
-              null
+          if (questions.isEmpty()) {
+            item {
+              Card(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 12.dp),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f))
+              ) {
+                Column(
+                  modifier = Modifier.fillMaxWidth().padding(20.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                  CircularProgressIndicator(modifier = Modifier.size(28.dp), strokeWidth = 2.dp)
+                  Spacer(modifier = Modifier.height(10.dp))
+                  Text(
+                    text = "Loading detailed question explanations...",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                  )
+                }
+              }
             }
+          } else {
+            itemsIndexed(questions) { index, question ->
+              val answerInfo = if (answersJson.has(question.id.toString())) {
+                answersJson.getJSONObject(question.id.toString())
+              } else {
+                null
+              }
 
-            val chosen = answerInfo?.optString("chosen", "") ?: ""
-            val isCorrect = answerInfo?.optBoolean("isCorrect", false) ?: false
+              val chosen = answerInfo?.optString("chosen", "") ?: ""
+              val isCorrect = answerInfo?.optBoolean("isCorrect", false) ?: false
 
-            QuestionReviewCard(
-              questionNumber = index + 1,
-              question = question,
-              chosenOption = chosen,
-              isCorrect = isCorrect
-            )
+              QuestionReviewCard(
+                questionNumber = index + 1,
+                question = question,
+                chosenOption = chosen,
+                isCorrect = isCorrect
+              )
+            }
           }
 
           item {
@@ -446,11 +534,13 @@ fun QuestionReviewCard(
   isCorrect: Boolean
 ) {
   Card(
-    modifier = Modifier.fillMaxWidth(),
+    modifier = Modifier
+      .fillMaxWidth()
+      .testTag("question_review_card_$questionNumber"),
     shape = RoundedCornerShape(14.dp),
     colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
     border = BorderStroke(
-      1.dp,
+      1.5.dp,
       if (chosenOption.isEmpty()) Color(0xFFCBD5E1) else if (isCorrect) Color(0xFF86EFAC) else Color(0xFFFCA5A5)
     )
   ) {
@@ -495,15 +585,163 @@ fun QuestionReviewCard(
 
       Spacer(modifier = Modifier.height(10.dp))
 
+      // Radiographic Diagram or Question Image if available
+      if (!question.imageUrl.isNullOrBlank()) {
+        Surface(
+          shape = RoundedCornerShape(8.dp),
+          border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+          color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+          modifier = Modifier
+            .fillMaxWidth()
+            .padding(bottom = 12.dp)
+        ) {
+          Column(
+            modifier = Modifier
+              .fillMaxWidth()
+              .padding(8.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+          ) {
+            AsyncImage(
+              model = question.imageUrl,
+              contentDescription = "Question illustration",
+              modifier = Modifier
+                .fillMaxWidth()
+                .heightIn(max = 220.dp)
+                .clip(RoundedCornerShape(6.dp)),
+              contentScale = ContentScale.Fit
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+              text = "Clinical Reference / Diagram",
+              style = MaterialTheme.typography.labelSmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+          }
+        }
+      }
+
       Text(
         text = question.questionText,
-        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium, lineHeight = 22.sp),
         color = MaterialTheme.colorScheme.onSurface
       )
 
-      Spacer(modifier = Modifier.height(12.dp))
+      Spacer(modifier = Modifier.height(14.dp))
 
-      // Answer Comparison
+      // Complete Options List with Explanatory Highlighting
+      val optionsList = listOf(
+        "A" to question.optionA,
+        "B" to question.optionB,
+        "C" to question.optionC,
+        "D" to question.optionD
+      )
+
+      Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        optionsList.forEach { (optKey, optText) ->
+          if (optText.isNotBlank()) {
+            val isCandidateChoice = chosenOption.equals(optKey, ignoreCase = true)
+            val isCorrectChoice = question.correctAnswer.equals(optKey, ignoreCase = true)
+
+            val borderColor = when {
+              isCorrectChoice -> SuccessGreen
+              isCandidateChoice && !isCorrect -> ErrorRed
+              else -> MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            }
+
+            val bgColor = when {
+              isCorrectChoice -> SuccessGreen.copy(alpha = 0.12f)
+              isCandidateChoice && !isCorrect -> ErrorRed.copy(alpha = 0.10f)
+              else -> MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.25f)
+            }
+
+            val tagLabel = when {
+              isCorrectChoice && isCandidateChoice -> "Your Choice • Correct"
+              isCorrectChoice -> "Correct Answer"
+              isCandidateChoice -> "Your Choice (Incorrect)"
+              else -> ""
+            }
+
+            val tagColor = when {
+              isCorrectChoice -> SuccessGreen
+              isCandidateChoice -> ErrorRed
+              else -> Color.Transparent
+            }
+
+            val tagIcon = when {
+              isCorrectChoice -> Icons.Default.CheckCircle
+              isCandidateChoice -> Icons.Default.Cancel
+              else -> null
+            }
+
+            Surface(
+              shape = RoundedCornerShape(8.dp),
+              color = bgColor,
+              border = BorderStroke(if (isCorrectChoice || isCandidateChoice) 1.5.dp else 1.dp, borderColor),
+              modifier = Modifier.fillMaxWidth()
+            ) {
+              Row(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+              ) {
+                Box(
+                  modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(
+                      if (isCorrectChoice) SuccessGreen
+                      else if (isCandidateChoice) ErrorRed
+                      else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f)
+                    ),
+                  contentAlignment = Alignment.Center
+                ) {
+                  Text(
+                    text = optKey,
+                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                    color = if (isCorrectChoice || isCandidateChoice) Color.White else MaterialTheme.colorScheme.onSurface
+                  )
+                }
+
+                Spacer(modifier = Modifier.width(10.dp))
+
+                Column(modifier = Modifier.weight(1f)) {
+                  Text(
+                    text = optText,
+                    style = MaterialTheme.typography.bodySmall.copy(
+                      fontWeight = if (isCorrectChoice || isCandidateChoice) FontWeight.SemiBold else FontWeight.Normal,
+                      lineHeight = 18.sp
+                    ),
+                    color = MaterialTheme.colorScheme.onSurface
+                  )
+
+                  if (tagLabel.isNotBlank()) {
+                    Spacer(modifier = Modifier.height(3.dp))
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                      if (tagIcon != null) {
+                        Icon(tagIcon, contentDescription = null, tint = tagColor, modifier = Modifier.size(13.dp))
+                        Spacer(modifier = Modifier.width(4.dp))
+                      }
+                      Text(
+                        text = tagLabel,
+                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                        color = tagColor
+                      )
+                    }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(14.dp))
+
+      // Answer Comparison Summary
       Row(modifier = Modifier.fillMaxWidth()) {
         Column(modifier = Modifier.weight(1f)) {
           Text("Your Answer:", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -543,7 +781,7 @@ fun QuestionReviewCard(
           )
           Spacer(modifier = Modifier.height(4.dp))
           Text(
-            text = question.explanation,
+            text = question.explanation.ifBlank { "Standard radiographic clinical rationale and syllabus guidelines apply." },
             style = MaterialTheme.typography.bodySmall.copy(lineHeight = 18.sp),
             color = MaterialTheme.colorScheme.onSurfaceVariant
           )

@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.ui.platform.testTag
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Campaign
@@ -955,11 +956,18 @@ fun AdminScoreExportView(
   val isPrimary = currentUser == null ||
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && currentUser.level.isBlank())
-  val secondaryAdminLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.assignedCourses?.ifBlank { currentUser?.level }) else null
+      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && (currentUser.level.isBlank() || currentUser.level.equals("Staff", ignoreCase = true)))
+  val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
-  var selectedLevelFilter by remember { mutableStateOf(if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else "All Levels") }
+  var selectedLevelFilter by remember(secondaryAdminLevel, isPrimary) {
+    mutableStateOf(if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else "All Levels")
+  }
   val levelOptions = listOf("All Levels", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
+  val effectiveLevelFilter = selectedLevelFilter
+
+  var attemptToDelete by remember { mutableStateOf<ExamAttemptEntity?>(null) }
+  var showBatchDeleteConfirm by remember { mutableStateOf(false) }
+  var isDeleting by remember { mutableStateOf(false) }
 
   LaunchedEffect(Unit) {
     adminViewModel.syncAttemptsFromCloud()
@@ -967,12 +975,28 @@ fun AdminScoreExportView(
 
   val studentMap = remember(students) { students.associateBy { it.id } }
 
-  val scopedCourses = remember(courses, isPrimary, secondaryAdminLevel) {
-    if (!isPrimary && secondaryAdminLevel != null) {
-      courses.filter { LevelClassifier.matchesLevel(secondaryAdminLevel, it.code) || LevelClassifier.matchesLevel(secondaryAdminLevel, it.level) }
+  val scopedCourses = remember(courses, effectiveLevelFilter) {
+    if (effectiveLevelFilter != "All Levels") {
+      courses.filter { LevelClassifier.matchesLevel(effectiveLevelFilter, it.code) || LevelClassifier.matchesLevel(effectiveLevelFilter, it.level) }
     } else {
       courses
     }
+  }
+
+  // Extract any course codes present in attempts that match the effective level
+  val attemptCourseCodes = remember(attempts, effectiveLevelFilter) {
+    attempts.mapNotNull { att ->
+      val code = LevelClassifier.extractCourseCode(att.courseTitle)
+        ?: LevelClassifier.extractCourseCode(att.examTitle)
+      if (code != null && (effectiveLevelFilter == "All Levels" || LevelClassifier.matchesLevel(effectiveLevelFilter, code))) {
+        code
+      } else null
+    }.distinct()
+  }
+
+  val courseNames = remember(scopedCourses, attemptCourseCodes) {
+    val codes = (scopedCourses.map { it.code } + attemptCourseCodes).distinct().sorted()
+    listOf("All Courses") + codes
   }
 
   var selectedCourseFilter by remember { mutableStateOf("All Courses") }
@@ -981,37 +1005,57 @@ fun AdminScoreExportView(
   var selectedSessionFilter by remember { mutableStateOf("All Sessions") }
   var sessionFilterExpanded by remember { mutableStateOf(false) }
 
-  val courseNames = listOf("All Courses") + scopedCourses.map { it.code }
+  LaunchedEffect(effectiveLevelFilter) {
+    if (selectedCourseFilter != "All Courses" && !courseNames.contains(selectedCourseFilter)) {
+      selectedCourseFilter = "All Courses"
+    }
+  }
 
   val sessionNames = remember(attempts) {
-    val found = attempts.mapNotNull { att ->
+    val fromAttempts = attempts.mapNotNull { att ->
       try {
         if (att.answersJson.startsWith("{")) {
           JSONObject(att.answersJson).optJSONObject("_meta")?.optString("session_id")
         } else null
       } catch (_: Exception) { null }
-    }.filter { it.isNotBlank() }.distinct()
-    listOf("All Sessions") + if (found.isEmpty()) listOf("Session 1") else found
+    }.filter { it.isNotBlank() }
+    val standardSessions = listOf("Session 1", "Session 2", "Session 3", "Continuous Assessment", "Semester Mock")
+    val allUnique = (fromAttempts + standardSessions).distinct()
+    listOf("All Sessions") + allUnique
   }
 
   val selectedCourse = scopedCourses.find { it.code.equals(selectedCourseFilter, ignoreCase = true) }
-  val effectiveLevelFilter = if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else selectedLevelFilter
   val filteredAttempts = attempts.filter { att ->
-    val studentLevel = studentMap[att.userId]?.level ?: ""
+    val studentObj = studentMap[att.userId]
+    val metaObj = try {
+      if (att.answersJson.startsWith("{")) JSONObject(att.answersJson).optJSONObject("_meta") else null
+    } catch (_: Exception) { null }
+    val studentLevel = studentObj?.level?.ifBlank { metaObj?.optString("student_level") } ?: metaObj?.optString("student_level") ?: ""
+    val adminLevel = metaObj?.optString("admin_level") ?: ""
+    val secAdminLevel = metaObj?.optString("secondary_admin_level") ?: ""
+    val detectedLevelFromCourse = LevelClassifier.getLevelFromCourseCode(att.courseTitle)
+      ?: LevelClassifier.getLevelFromCourseCode(att.examTitle)
+
     val matchLevel = (effectiveLevelFilter == "All Levels") ||
+                      LevelClassifier.matchesLevel(effectiveLevelFilter, studentLevel) ||
+                      LevelClassifier.matchesLevel(effectiveLevelFilter, adminLevel) ||
+                      LevelClassifier.matchesLevel(effectiveLevelFilter, secAdminLevel) ||
+                      LevelClassifier.matchesLevel(effectiveLevelFilter, detectedLevelFromCourse) ||
                       LevelClassifier.matchesLevel(effectiveLevelFilter, att.courseTitle) ||
-                      LevelClassifier.matchesLevel(effectiveLevelFilter, att.examTitle) ||
-                      LevelClassifier.matchesLevel(effectiveLevelFilter, studentLevel)
+                      LevelClassifier.matchesLevel(effectiveLevelFilter, att.examTitle)
+
     val matchCourse = (selectedCourseFilter == "All Courses") ||
                       att.courseTitle.contains(selectedCourseFilter, ignoreCase = true) ||
                       att.examTitle.contains(selectedCourseFilter, ignoreCase = true) ||
                       (selectedCourse != null && (att.courseTitle.contains(selectedCourse.title, ignoreCase = true) || att.examTitle.contains(selectedCourse.code, ignoreCase = true)))
+
     val session = try {
       if (att.answersJson.startsWith("{")) {
         JSONObject(att.answersJson).optJSONObject("_meta")?.optString("session_id", "Session 1") ?: "Session 1"
       } else "Session 1"
     } catch (_: Exception) { "Session 1" }
     val matchSession = (selectedSessionFilter == "All Sessions") || session.equals(selectedSessionFilter, ignoreCase = true)
+
     matchLevel && matchCourse && matchSession
   }
 
@@ -1023,6 +1067,78 @@ fun AdminScoreExportView(
     pct >= 50
   }
   val passRate = if (totalCandidates > 0) (passedCount * 100) / totalCandidates else 0
+
+  if (attemptToDelete != null) {
+    val target = attemptToDelete!!
+    AlertDialog(
+      onDismissRequest = { if (!isDeleting) attemptToDelete = null },
+      title = { Text("Delete Submission Permanently?") },
+      text = {
+        Text("Are you sure you want to delete the score record for ${target.courseTitle} (${target.examTitle})?\n\nThis will remove the submission from both device storage and the Supabase database. This action cannot be undone.")
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            isDeleting = true
+            adminViewModel.deleteAttempt(target) { success ->
+              isDeleting = false
+              attemptToDelete = null
+              if (success) {
+                Toast.makeText(context, "Submission deleted from database.", Toast.LENGTH_SHORT).show()
+              } else {
+                Toast.makeText(context, "Failed to delete submission.", Toast.LENGTH_SHORT).show()
+              }
+            }
+          },
+          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+        ) {
+          Text(if (isDeleting) "Deleting..." else "Delete Permanently")
+        }
+      },
+      dismissButton = {
+        OutlinedButton(
+          onClick = { attemptToDelete = null },
+          enabled = !isDeleting
+        ) {
+          Text("Cancel")
+        }
+      }
+    )
+  }
+
+  if (showBatchDeleteConfirm) {
+    AlertDialog(
+      onDismissRequest = { if (!isDeleting) showBatchDeleteConfirm = false },
+      title = { Text("Delete Filtered Submissions (${filteredAttempts.size})?") },
+      text = {
+        Text("Are you sure you want to delete all ${filteredAttempts.size} submission(s) currently matching:\n\n• Level: $effectiveLevelFilter\n• Course: $selectedCourseFilter\n• Session: $selectedSessionFilter\n\nThis will permanently remove these records from both local Room storage and Supabase cloud database.")
+      },
+      confirmButton = {
+        Button(
+          onClick = {
+            isDeleting = true
+            val toDelete = filteredAttempts
+            adminViewModel.deleteAttempts(toDelete) { count ->
+              isDeleting = false
+              showBatchDeleteConfirm = false
+              Toast.makeText(context, "Deleted $count submission(s) from database.", Toast.LENGTH_SHORT).show()
+            }
+          },
+          colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error)
+        ) {
+          Text(if (isDeleting) "Deleting..." else "Delete All Filtered")
+        }
+      },
+      dismissButton = {
+        OutlinedButton(
+          onClick = { showBatchDeleteConfirm = false },
+          enabled = !isDeleting
+        ) {
+          Text("Cancel")
+        }
+      }
+    )
+  }
 
   Column(
     modifier = Modifier
@@ -1109,42 +1225,44 @@ fun AdminScoreExportView(
     Spacer(modifier = Modifier.height(12.dp))
 
     // Academic Level Selector
-    if (isPrimary) {
-      Row(
-        modifier = Modifier.fillMaxWidth(),
-        horizontalArrangement = Arrangement.spacedBy(6.dp)
-      ) {
-        levelOptions.take(4).forEach { lvl ->
-          val isSel = selectedLevelFilter == lvl
-          Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = if (isSel) ProfessionalBlue else MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.clickable { selectedLevelFilter = lvl }
-          ) {
-            Text(
-              text = lvl,
-              style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal),
-              color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-            )
-          }
-        }
-      }
-      Spacer(modifier = Modifier.height(8.dp))
-    } else {
+    if (!isPrimary && secondaryAdminLevel != null) {
       Surface(
         shape = RoundedCornerShape(8.dp),
         color = ProfessionalBlue.copy(alpha = 0.12f),
-        modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp)
       ) {
         Text(
-          text = "Assigned Level Roster: $secondaryAdminLevel (Secondary Admin)",
+          text = "Assigned Level Roster: $secondaryAdminLevel (Secondary Admin) • Switch levels below freely",
           style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
           color = ProfessionalBlue,
           modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
         )
       }
     }
+
+    Row(
+      modifier = Modifier
+        .fillMaxWidth()
+        .horizontalScroll(rememberScrollState()),
+      horizontalArrangement = Arrangement.spacedBy(6.dp)
+    ) {
+      levelOptions.forEach { lvl ->
+        val isSel = selectedLevelFilter == lvl
+        Surface(
+          shape = RoundedCornerShape(8.dp),
+          color = if (isSel) ProfessionalBlue else MaterialTheme.colorScheme.surfaceVariant,
+          modifier = Modifier.clickable { selectedLevelFilter = lvl }
+        ) {
+          Text(
+            text = lvl,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal),
+            color = if (isSel) Color.White else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+          )
+        }
+      }
+    }
+    Spacer(modifier = Modifier.height(8.dp))
 
     // Filter Controls: Course and Session
     Row(
@@ -1211,26 +1329,49 @@ fun AdminScoreExportView(
     ) {
       Button(
         onClick = {
-          val selectedCourseObj = courses.find { it.code.equals(selectedCourseFilter, ignoreCase = true) }
-          val courseCode = selectedCourseObj?.code ?: if (selectedCourseFilter != "All Courses") selectedCourseFilter else "ANA 201"
-          val courseTitle = selectedCourseObj?.title ?: "GROSS ANATOMY OF UPPER AND LOWER LIMBS"
-          val sessionName = if (selectedSessionFilter != "All Sessions") selectedSessionFilter else "General Departmental Session"
+          val selectedCourseObj = scopedCourses.find { it.code.equals(selectedCourseFilter, ignoreCase = true) }
+          val courseCode = if (selectedCourseObj != null) {
+            selectedCourseObj.code
+          } else if (selectedCourseFilter != "All Courses") {
+            selectedCourseFilter
+          } else if (effectiveLevelFilter != "All Levels") {
+            "$effectiveLevelFilter CBT"
+          } else {
+            "Departmental CBT"
+          }
+
+          val courseTitle = if (selectedCourseObj != null) {
+            selectedCourseObj.title
+          } else if (effectiveLevelFilter != "All Levels") {
+            "$effectiveLevelFilter Comprehensive Evaluation"
+          } else {
+            "Medical Radiography General CBT Examination"
+          }
+
+          val sessionName = if (selectedSessionFilter != "All Sessions") selectedSessionFilter else "Departmental Session"
 
           val feedbackMsg = if (filteredAttempts.isNotEmpty()) {
-            "Generating Official CBT Score Sheet for $courseCode..."
+            "Generating Official CBT Score Sheet for $courseCode ($sessionName)..."
           } else {
-            "Generating Departmental Candidate Roster for $courseCode..."
+            "Generating Candidate Roster for $courseCode ($sessionName)..."
           }
           Toast.makeText(context, feedbackMsg, Toast.LENGTH_SHORT).show()
+
+          // Filter studentMap to target level if a specific level is selected
+          val targetStudentsMap = if (effectiveLevelFilter != "All Levels") {
+            studentMap.filter { (_, st) -> LevelClassifier.matchesLevel(effectiveLevelFilter, st.level) }
+          } else {
+            studentMap
+          }
 
           val pdfResult = ScoreSheetPdfGenerator.generateMockScoreSheetPdf(
             context = context,
             courseCode = courseCode,
             courseTitle = courseTitle,
             sessionName = sessionName,
-            deadlineStr = "",
+            deadlineStr = if (effectiveLevelFilter != "All Levels") "Academic Level: $effectiveLevelFilter" else "",
             attempts = filteredAttempts,
-            studentsMap = studentMap
+            studentsMap = targetStudentsMap
           )
 
           pdfResult.fold(
@@ -1269,6 +1410,15 @@ fun AdminScoreExportView(
         Icon(Icons.Outlined.Share, contentDescription = null, modifier = Modifier.size(16.dp))
         Spacer(modifier = Modifier.width(4.dp))
         Text("Share", style = MaterialTheme.typography.labelMedium)
+      }
+
+      if (filteredAttempts.isNotEmpty()) {
+        IconButton(
+          onClick = { showBatchDeleteConfirm = true },
+          modifier = Modifier.height(46.dp)
+        ) {
+          Icon(Icons.Default.Delete, contentDescription = "Delete Filtered Submissions", tint = MaterialTheme.colorScheme.error)
+        }
       }
     }
 
@@ -1425,16 +1575,30 @@ fun AdminScoreExportView(
               }
 
               Column(horizontalAlignment = Alignment.End) {
-                Surface(
-                  shape = RoundedCornerShape(8.dp),
-                  color = if (passed) SuccessGreen.copy(alpha = 0.15f) else ErrorRed.copy(alpha = 0.15f)
-                ) {
-                  Text(
-                    text = "$percent%",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = if (passed) SuccessGreen else ErrorRed,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
-                  )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                  Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (passed) SuccessGreen.copy(alpha = 0.15f) else ErrorRed.copy(alpha = 0.15f)
+                  ) {
+                    Text(
+                      text = "$percent%",
+                      style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+                      color = if (passed) SuccessGreen else ErrorRed,
+                      modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp)
+                    )
+                  }
+                  Spacer(modifier = Modifier.width(4.dp))
+                  IconButton(
+                    onClick = { attemptToDelete = att },
+                    modifier = Modifier.size(32.dp)
+                  ) {
+                    Icon(
+                      Icons.Default.Delete,
+                      contentDescription = "Delete Submission",
+                      tint = MaterialTheme.colorScheme.error,
+                      modifier = Modifier.size(18.dp)
+                    )
+                  }
                 }
                 Text(
                   text = "$rawScore/$total Marks",

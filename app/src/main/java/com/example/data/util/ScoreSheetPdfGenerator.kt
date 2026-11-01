@@ -213,7 +213,11 @@ object ScoreSheetPdfGenerator {
         textPaint.textSize = 9.5f
         textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         textPaint.color = Color.rgb(15, 23, 42)
-        val detectedLevel = LevelClassifier.getLevelFromCourseCode(courseCode) ?: "Departmental Level"
+        val detectedLevel = if (deadlineStr.startsWith("Academic Level:")) {
+          deadlineStr.replace("Academic Level:", "").trim()
+        } else {
+          LevelClassifier.getLevelFromCourseCode(courseCode) ?: "Departmental Level"
+        }
         canvas.drawText("Course: $courseCode — $courseTitle  •  $detectedLevel", leftX, y, textPaint)
 
         textPaint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
@@ -224,7 +228,7 @@ object ScoreSheetPdfGenerator {
         y += 14f
 
         val sessionLabel = if (sessionName.isNotBlank()) sessionName else "Departmental CBT Simulation"
-        val deadlineLabel = if (deadlineStr.isNotBlank()) "Deadline: $deadlineStr" else "Session: Active Window"
+        val deadlineLabel = if (deadlineStr.isNotBlank() && !deadlineStr.startsWith("Academic Level:")) "Deadline: $deadlineStr" else "Session: Official Active Window"
         canvas.drawText("Session: $sessionLabel  •  $deadlineLabel", leftX, y, textPaint)
 
         textPaint.textAlign = Paint.Align.RIGHT

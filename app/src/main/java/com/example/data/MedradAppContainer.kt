@@ -34,7 +34,7 @@ class MedradAppContainer(val context: Context) {
   }
 
   val adminRepository: AdminRepository by lazy {
-    AdminRepository(database)
+    AdminRepository(database, context)
   }
 
   val cloudSyncManager: com.example.data.sync.CloudSyncManager by lazy {

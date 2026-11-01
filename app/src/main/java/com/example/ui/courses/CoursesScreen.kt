@@ -118,18 +118,19 @@ fun CoursesScreen(
   val coroutineScope = rememberCoroutineScope()
   val isSyncing by (cloudSyncManager?.isSyncing ?: remember { MutableStateFlow(false) }).collectAsState()
   val allCourses by academicRepository.getAllCourses().collectAsState(initial = emptyList())
-  val courses = remember(allCourses, user.level, user.role, user.adminRole) {
-    if (user.role == "ADMIN") {
-      val isPrimary = user.adminRole.equals("PRIMARY", ignoreCase = true) ||
-          user.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-          user.adminRole.isBlank()
-      if (isPrimary) {
-        allCourses
-      } else {
-        allCourses.filter { com.example.data.util.LevelClassifier.matchesUserLevel(user, it.code, it.level) }
-      }
+  val userDefaultLevel = com.example.data.util.LevelClassifier.normalizeLevel(user.level)
+  var selectedLevelFilter by remember { mutableStateOf("My Level ($userDefaultLevel)") }
+  val levelOptions = listOf("My Level ($userDefaultLevel)", "All Levels", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level")
+  val effectiveFilter = if (selectedLevelFilter.startsWith("My Level")) userDefaultLevel else selectedLevelFilter
+
+  val courses = remember(allCourses, effectiveFilter) {
+    if (effectiveFilter == "All Levels") {
+      allCourses
     } else {
-      allCourses.filter { com.example.data.util.LevelClassifier.matchesUserLevel(user, it.code, it.level) }
+      allCourses.filter {
+        com.example.data.util.LevelClassifier.matchesLevel(effectiveFilter, it.code) ||
+        com.example.data.util.LevelClassifier.matchesLevel(effectiveFilter, it.level)
+      }
     }
   }
 
@@ -269,6 +270,37 @@ fun CoursesScreen(
         }
       }
 
+      // Flexible Academic Level Filter Row (Students & Admins can switch levels to access materials)
+      LazyRow(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 12.dp, vertical = 6.dp),
+        horizontalArrangement = Arrangement.spacedBy(6.dp)
+      ) {
+        items(levelOptions) { lvl ->
+          val isSelected = selectedLevelFilter == lvl
+          Surface(
+            onClick = {
+              selectedLevelFilter = lvl
+              selectedCourseId = null
+            },
+            shape = RoundedCornerShape(8.dp),
+            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+            border = BorderStroke(
+              width = 1.dp,
+              color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f)
+            )
+          ) {
+            Text(
+              text = lvl,
+              style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal),
+              color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
+            )
+          }
+        }
+      }
+
       if (courses.isEmpty()) {
         Box(
           modifier = Modifier
@@ -304,14 +336,14 @@ fun CoursesScreen(
               }
               Spacer(modifier = Modifier.height(16.dp))
               Text(
-                text = "No Courses for ${user.level} Yet",
+                text = "No Courses for $effectiveFilter Yet",
                 style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
                 color = MaterialTheme.colorScheme.onSurface,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center
               )
               Spacer(modifier = Modifier.height(8.dp))
               Text(
-                text = "Departmental courses, study packs, and syllabus materials for ${user.level} have not been uploaded by administrators yet. When published, your course hubs and lecture materials will automatically appear here.",
+                text = "Departmental courses, study packs, and syllabus materials for $effectiveFilter have not been uploaded by administrators yet. Use the level buttons above to view other levels.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center

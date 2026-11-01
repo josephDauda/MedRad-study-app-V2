@@ -10,7 +10,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [33])
 class ExampleRobolectricTest {
 
   @Test
@@ -113,6 +113,7 @@ class ExampleRobolectricTest {
     kotlinx.coroutines.runBlocking {
       container.cloudSyncManager.updateDailySprintConfig(updatedConfig)
     }
+    org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
     // Student Dashboard StateFlow MUST reflect update immediately
     val currentSprint = dashboardVm.dailySprintConfig.value
@@ -153,6 +154,7 @@ class ExampleRobolectricTest {
         )
       )
     }
+    org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
 
     assertEquals("Radiation Protection Blitz", dashboardVm.dailySprintConfig.value.title)
     assertEquals("REALTIME SPRINT", dashboardVm.dailySprintConfig.value.badge)
@@ -755,4 +757,370 @@ class ExampleRobolectricTest {
     org.junit.Assert.assertTrue("200 Level student receives questions matching their level", questionsFor200.isNotEmpty())
     org.junit.Assert.assertTrue("Returned questions belong to 200 Level pool", questionsFor200.any { it.id == 9001L || it.id == 1L })
   }
+
+  @Test
+  fun `verify secondary admin assignment, Room persistence, and level scope isolation`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val container = com.example.data.MedradAppContainer.getInstance(context)
+
+    val existingAdmin = container.database.userDao().getUserByEmail("admin@medrad.edu.ng")
+    val primaryAdmin = if (existingAdmin != null) existingAdmin else {
+      val newAdmin = com.example.data.local.entity.UserEntity(
+        fullName = "Chief Radiographer / Admin",
+        email = "admin@medrad.edu.ng",
+        phoneNumber = "+2348000000001",
+        passwordHash = com.example.data.util.PasswordSecurity.hashPassword("MedRadAdmin2026!"),
+        role = "ADMIN",
+        adminRole = "PRIMARY",
+        university = "University of Maiduguri",
+        faculty = "College of Medical Sciences",
+        department = "Medical Radiography",
+        level = "All Levels",
+        semester = "Staff",
+        isPremium = true
+      )
+      val id = container.database.userDao().insertUser(newAdmin)
+      newAdmin.copy(id = id)
+    }
+
+    // 1. Register a student
+    val studentId = container.database.userDao().insertUser(
+      com.example.data.local.entity.UserEntity(
+        fullName = "Musa Dauda",
+        email = "musa.dauda@medrad.edu.ng",
+        phoneNumber = "08142833756",
+        passwordHash = com.example.data.util.PasswordSecurity.hashPassword("Password123"),
+        role = "STUDENT",
+        adminRole = "",
+        university = "University of Maiduguri",
+        faculty = "College of Medical Sciences",
+        department = "Medical Radiography",
+        level = "300 Level",
+        semester = "First Semester"
+      )
+    )
+
+    // 2. Primary admin assigns student as Secondary Admin for 300 Level
+    val assignRes = container.adminRepository.addSecondaryAdmin(
+      creator = primaryAdmin,
+      fullName = "Musa Dauda",
+      email = "musa.dauda@medrad.edu.ng",
+      phoneNumber = "08142833756",
+      rawPassword = "", // Keep user's password
+      permissions = "materials,questions,exams",
+      assignedCourses = "300 Level"
+    )
+    org.junit.Assert.assertTrue("Assignment must succeed", assignRes.isSuccess)
+
+    // 3. Verify user in Room DB is now an ADMIN with adminRole = SECONDARY
+    val updatedUser = container.database.userDao().getUserById(studentId)
+    org.junit.Assert.assertNotNull(updatedUser)
+    assertEquals("ADMIN", updatedUser!!.role)
+    assertEquals("SECONDARY", updatedUser.adminRole)
+    assertEquals("300 Level", updatedUser.level)
+    assertEquals("300 Level", updatedUser.assignedCourses)
+
+    // 4. Verify getAllAdminsList includes both Primary and Secondary admins
+    val allAdmins = container.database.userDao().getAllAdminsList()
+    org.junit.Assert.assertTrue("allAdmins must include primary admin", allAdmins.any { it.email.equals("admin@medrad.edu.ng", ignoreCase = true) })
+    org.junit.Assert.assertTrue("allAdmins must include secondary admin", allAdmins.any { it.email.equals("musa.dauda@medrad.edu.ng", ignoreCase = true) })
+
+    // 5. Verify level scoping: Secondary admin level is exactly 300 Level
+    val scopeLevel = com.example.data.util.LevelClassifier.getSecondaryAdminLevel(updatedUser)
+    assertEquals("300 Level", scopeLevel)
+
+    // 6. Verify matchesUserLevel allows 300 Level course RAD 301, but rejects RAD 401
+    val canAccessRad301 = com.example.data.util.LevelClassifier.matchesUserLevel(updatedUser, "RAD 301")
+    val canAccessRad401 = com.example.data.util.LevelClassifier.matchesUserLevel(updatedUser, "RAD 401")
+    org.junit.Assert.assertTrue("Secondary admin should match 300 Level course", canAccessRad301)
+    org.junit.Assert.assertFalse("Secondary admin must NOT match other level course", canAccessRad401)
+  }
+
+  @Test
+  fun `verify mock exam one attempt rule, session isolation, and corrections resolution in ResultsViewModel`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val container = com.example.data.MedradAppContainer.getInstance(context)
+
+    // 1. Insert a candidate and test course & questions
+    val candidate = com.example.data.local.entity.UserEntity(
+      id = 9101L,
+      fullName = "Halima Abubakar",
+      email = "halima.abubakar@medrad.edu.ng",
+      phoneNumber = "08012345678",
+      university = "University of Maiduguri",
+      faculty = "College of Medical Sciences",
+      department = "Medical Radiography",
+      level = "100 Level",
+      semester = "First Semester",
+      role = "STUDENT",
+      passwordHash = "hash123",
+      isPremium = false
+    )
+    container.database.userDao().insertUser(candidate)
+
+    val course = com.example.data.local.entity.CourseEntity(
+      id = 101L,
+      departmentId = 1L,
+      code = "BIO 101",
+      title = "General Biology I",
+      level = "100 Level",
+      semester = "First Semester"
+    )
+    container.database.academicDao().insertCourse(course)
+
+    val q1 = com.example.data.local.entity.QuestionEntity(
+      id = 501L,
+      courseId = 101L,
+      topicId = 1L,
+      questionText = "Which cellular organelle is responsible for ATP generation?",
+      optionA = "Mitochondria",
+      optionB = "Ribosome",
+      optionC = "Golgi Apparatus",
+      optionD = "Lysosome",
+      correctAnswer = "A",
+      explanation = "Mitochondria are the powerhouses of the cell where oxidative phosphorylation occurs.",
+      difficulty = "Medium",
+      isPublished = true
+    )
+    val q2 = com.example.data.local.entity.QuestionEntity(
+      id = 502L,
+      courseId = 101L,
+      topicId = 1L,
+      questionText = "During which phase of mitosis do sister chromatids separate?",
+      optionA = "Prophase",
+      optionB = "Metaphase",
+      optionC = "Anaphase",
+      optionD = "Telophase",
+      correctAnswer = "C",
+      explanation = "In anaphase, sister chromatids are pulled toward opposite centrosomes.",
+      difficulty = "Medium",
+      isPublished = true
+    )
+    container.database.questionDao().insertAllQuestions(listOf(q1, q2))
+
+    // 2. Simulate exam submission for Session 1 with snapshots
+    val answersJson = org.json.JSONObject().apply {
+      put("501", org.json.JSONObject().apply {
+        put("chosen", "A")
+        put("correct", "A")
+        put("isCorrect", true)
+        put("question_text", q1.questionText)
+        put("option_a", q1.optionA)
+        put("option_b", q1.optionB)
+        put("option_c", q1.optionC)
+        put("option_d", q1.optionD)
+        put("explanation", q1.explanation)
+      })
+      put("502", org.json.JSONObject().apply {
+        put("chosen", "B")
+        put("correct", "C")
+        put("isCorrect", false)
+        put("question_text", q2.questionText)
+        put("option_a", q2.optionA)
+        put("option_b", q2.optionB)
+        put("option_c", q2.optionC)
+        put("option_d", q2.optionD)
+        put("explanation", q2.explanation)
+      })
+      put("_meta", org.json.JSONObject().apply {
+        put("student_name", candidate.fullName)
+        put("student_email", candidate.email)
+        put("session_id", "Session 1")
+        put("is_mock_exam", true)
+        put("question_ids", "501,502")
+      })
+    }
+
+    val attempt = com.example.data.local.entity.ExamAttemptEntity(
+      userId = candidate.id,
+      examId = 101L,
+      courseTitle = "BIO 101 — General Biology I",
+      examTitle = "BIO 101 Continuous Assessment",
+      score = 50,
+      totalQuestions = 2,
+      correctAnswers = 1,
+      incorrectAnswers = 1,
+      unansweredQuestions = 0,
+      timeSpentSeconds = 120,
+      answersJson = answersJson.toString()
+    )
+    val attemptId = container.cbtRepository.submitExamAttempt(attempt)
+    org.junit.Assert.assertTrue("Attempt ID should be valid", attemptId > 0)
+
+    // 3. Test ResultsViewModel.loadAttempt
+    val resultsViewModel = com.example.ui.viewmodel.ResultsViewModel(
+      cbtRepository = container.cbtRepository,
+      academicRepository = container.academicRepository
+    )
+    resultsViewModel.loadAttempt(attemptId)
+    org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+
+    for (i in 0 until 20) {
+      if (resultsViewModel.attempt.value != null && resultsViewModel.questions.value.isNotEmpty()) break
+      kotlinx.coroutines.delay(50)
+      org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+    }
+
+    val loadedAttempt = resultsViewModel.attempt.value
+    org.junit.Assert.assertNotNull("Loaded attempt must not be null", loadedAttempt)
+    assertEquals(50, loadedAttempt!!.score)
+
+    val loadedQuestions = resultsViewModel.questions.value
+    org.junit.Assert.assertTrue("Loaded questions must not be empty", loadedQuestions.isNotEmpty())
+    assertEquals(2, loadedQuestions.size)
+    assertEquals("Which cellular organelle is responsible for ATP generation?", loadedQuestions[0].questionText)
+    assertEquals("Mitochondria", loadedQuestions[0].optionA)
+    assertEquals("During which phase of mitosis do sister chromatids separate?", loadedQuestions[1].questionText)
+    assertEquals("C", loadedQuestions[1].correctAnswer)
+
+    // 4. Verify Single Attempt Policy for Session 1: Candidate is blocked from retrying Session 1
+    val existingAttemptSession1 = container.cbtRepository.getExistingAttemptForUserAndExam(
+      userId = candidate.id,
+      examId = 101L,
+      examTitle = "BIO 101 Continuous Assessment",
+      courseCode = "BIO 101",
+      sessionId = "Session 1"
+    )
+    org.junit.Assert.assertNotNull("Session 1 attempt must be found and blocked from retrying", existingAttemptSession1)
+
+    // 5. Verify New Session Unlocking: When admin pushes Session 2, attempt for Session 2 is null so student can take it!
+    val existingAttemptSession2 = container.cbtRepository.getExistingAttemptForUserAndExam(
+      userId = candidate.id,
+      examId = 101L,
+      examTitle = "BIO 101 Continuous Assessment",
+      courseCode = "BIO 101",
+      sessionId = "Session 2"
+    )
+    org.junit.Assert.assertNull("Session 2 has not been attempted yet, so new attempt is permitted", existingAttemptSession2)
+  }
+
+  @Test
+  fun `TEST AD - Strict course question isolation without cross-course leakage`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val container = com.example.data.MedradAppContainer.getInstance(context)
+
+    val studentUser = com.example.data.local.entity.UserEntity(
+      id = 9999L,
+      fullName = "Test Student",
+      email = "student9999@medrad.edu.ng",
+      phoneNumber = "08012345678",
+      university = "University of Maiduguri",
+      faculty = "College of Medical Sciences",
+      department = "Medical Radiography",
+      level = "100 Level",
+      semester = "First Semester",
+      role = "STUDENT",
+      passwordHash = "hash123",
+      isPremium = false
+    )
+    // Course 9999 has no questions set
+    val emptyCourseQuestions = container.cbtRepository.getPracticeQuestions(
+      courseId = 9999L,
+      limit = 20,
+      studentLevel = "100 Level"
+    )
+    org.junit.Assert.assertTrue("Course with no questions set must return empty list (curriculum isolation)", emptyCourseQuestions.isEmpty())
+
+    // Also verify CBT ViewModel startPractice enforces isolation
+    val cbtVm = com.example.ui.viewmodel.CbtViewModel(
+      cbtRepository = container.cbtRepository,
+      academicRepository = container.academicRepository,
+      cloudSyncManager = container.cloudSyncManager
+    )
+    cbtVm.startPractice(courseId = 9999L, user = studentUser, questionCount = 10)
+    org.robolectric.shadows.ShadowLooper.runUiThreadTasksIncludingDelayedTasks()
+    org.junit.Assert.assertTrue("CBT UI questions must be empty when questions are not yet set", cbtVm.sessionState.value.questions.isEmpty())
+  }
+
+  @Test
+  fun `TEST AE - Secondary admin profile level update transitions oversight scope immediately`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val container = com.example.data.MedradAppContainer.getInstance(context)
+
+    // Create a secondary admin for 200 Level
+    val secAdmin = com.example.data.local.entity.UserEntity(
+      fullName = "Dr. Amina Bello",
+      email = "amina.bello@medrad.edu.ng",
+      phoneNumber = "08011223344",
+      university = "University of Maiduguri",
+      faculty = "College of Medical Sciences",
+      department = "Medical Radiography",
+      level = "200 Level",
+      semester = "First Semester",
+      role = "ADMIN",
+      adminRole = "SECONDARY",
+      assignedCourses = "200 Level",
+      passwordHash = "hash123",
+      isPremium = true
+    )
+    val adminId = container.database.userDao().insertUser(secAdmin)
+    val insertedAdmin = container.database.userDao().getUserById(adminId)!!
+
+    assertEquals("200 Level", com.example.data.util.LevelClassifier.getSecondaryAdminLevel(insertedAdmin))
+
+    // Now admin is promoted/transferred to 300 Level via Profile Update
+    val updatedAdmin = insertedAdmin.copy(level = "300 Level", assignedCourses = "300 Level")
+    container.database.userDao().updateUser(updatedAdmin)
+
+    val refreshed = container.database.userDao().getUserById(adminId)!!
+    assertEquals("300 Level", com.example.data.util.LevelClassifier.getSecondaryAdminLevel(refreshed))
+    org.junit.Assert.assertTrue(com.example.data.util.LevelClassifier.matchesLevel("300 Level", refreshed.level))
+  }
+
+  @Test
+  fun `TEST AF - Real Room and cloud submission deletion`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val container = com.example.data.MedradAppContainer.getInstance(context)
+
+    // Insert two test attempts
+    val attempt1 = com.example.data.local.entity.ExamAttemptEntity(
+      userId = 1L,
+      examId = 201L,
+      courseTitle = "RAD 201 - Radiographic Technique",
+      examTitle = "RAD 201 Continuous Assessment",
+      score = 80,
+      totalQuestions = 10,
+      correctAnswers = 8,
+      incorrectAnswers = 2,
+      unansweredQuestions = 0,
+      timeSpentSeconds = 300,
+      answersJson = """{"_meta":{"session_id":"Session 1","student_level":"200 Level"}}""",
+      remoteId = "test-uuid-del-1"
+    )
+    val attempt2 = com.example.data.local.entity.ExamAttemptEntity(
+      userId = 2L,
+      examId = 201L,
+      courseTitle = "RAD 201 - Radiographic Technique",
+      examTitle = "RAD 201 Continuous Assessment",
+      score = 40,
+      totalQuestions = 10,
+      correctAnswers = 4,
+      incorrectAnswers = 6,
+      unansweredQuestions = 0,
+      timeSpentSeconds = 240,
+      answersJson = """{"_meta":{"session_id":"Session 1","student_level":"200 Level"}}""",
+      remoteId = "test-uuid-del-2"
+    )
+
+    val id1 = container.database.examDao().insertAttempt(attempt1)
+    val id2 = container.database.examDao().insertAttempt(attempt2)
+    org.junit.Assert.assertTrue(id1 > 0 && id2 > 0)
+
+    val saved1 = attempt1.copy(id = id1)
+    val saved2 = attempt2.copy(id = id2)
+
+    // Delete single attempt
+    val singleDelResult = container.adminRepository.deleteAttempt(saved1)
+    org.junit.Assert.assertTrue("Single attempt deletion must succeed", singleDelResult.isSuccess)
+    val lookup1 = container.database.examDao().getAttemptById(id1)
+    org.junit.Assert.assertNull("Deleted attempt must not exist in Room DB", lookup1)
+
+    // Batch delete
+    val batchDelResult = container.adminRepository.deleteAttempts(listOf(saved2))
+    org.junit.Assert.assertTrue("Batch attempt deletion must succeed", batchDelResult.isSuccess)
+    val lookup2 = container.database.examDao().getAttemptById(id2)
+    org.junit.Assert.assertNull("Batch deleted attempt must not exist in Room DB", lookup2)
+  }
 }
+
+

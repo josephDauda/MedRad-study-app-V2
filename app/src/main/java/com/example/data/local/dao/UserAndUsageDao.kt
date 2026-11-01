@@ -11,10 +11,10 @@ import kotlinx.coroutines.flow.Flow
 
 @Dao
 interface UserDao {
-  @Insert(onConflict = OnConflictStrategy.ABORT)
+  @Insert(onConflict = OnConflictStrategy.REPLACE)
   suspend fun insertUser(user: UserEntity): Long
 
-  @Query("SELECT * FROM users WHERE email = :email LIMIT 1")
+  @Query("SELECT * FROM users WHERE lower(email) = lower(:email) LIMIT 1")
   suspend fun getUserByEmail(email: String): UserEntity?
 
   @Query("SELECT * FROM users WHERE phoneNumber = :phone AND phoneNumber != '' LIMIT 1")
@@ -44,10 +44,10 @@ interface UserDao {
   @Query("SELECT COUNT(*) FROM users WHERE role = 'STUDENT' AND isPremium = 1")
   suspend fun getPremiumStudentsCount(): Int
 
-  @Query("SELECT * FROM users WHERE role = 'ADMIN' ORDER BY createdAt ASC")
+  @Query("SELECT * FROM users WHERE UPPER(role) = 'ADMIN' OR UPPER(adminRole) IN ('PRIMARY', 'SECONDARY') ORDER BY createdAt ASC")
   fun getAllAdmins(): Flow<List<UserEntity>>
 
-  @Query("SELECT * FROM users WHERE role = 'ADMIN' ORDER BY createdAt ASC")
+  @Query("SELECT * FROM users WHERE UPPER(role) = 'ADMIN' OR UPPER(adminRole) IN ('PRIMARY', 'SECONDARY') ORDER BY createdAt ASC")
   suspend fun getAllAdminsList(): List<UserEntity>
 
   @Query("SELECT * FROM users ORDER BY fullName ASC")

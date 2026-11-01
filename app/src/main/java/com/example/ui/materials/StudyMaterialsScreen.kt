@@ -101,15 +101,19 @@ fun StudyMaterialsScreen(
   val allMaterials by academicRepository.getAllMaterials().collectAsState(initial = emptyList())
   val allCourses by academicRepository.getAllCourses().collectAsState(initial = emptyList())
   val courseMap = remember(allCourses) { allCourses.associateBy { it.id } }
-  val courses = remember(allCourses, user.level, user.role, user.adminRole) {
-    if (user.role == "ADMIN") {
-      val isPrimary = user.adminRole.equals("PRIMARY", ignoreCase = true) ||
-          user.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-          user.adminRole.isBlank()
-      if (isPrimary) allCourses
-      else allCourses.filter { com.example.data.util.LevelClassifier.matchesUserLevel(user, it.code, it.level) }
+  val userDefaultLevel = com.example.data.util.LevelClassifier.normalizeLevel(user.level)
+  var selectedLevelFilter by remember { mutableStateOf("My Level ($userDefaultLevel)") }
+  val levelOptions = listOf("My Level ($userDefaultLevel)", "All Levels", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level")
+  val effectiveFilter = if (selectedLevelFilter.startsWith("My Level")) userDefaultLevel else selectedLevelFilter
+
+  val courses = remember(allCourses, effectiveFilter) {
+    if (effectiveFilter == "All Levels") {
+      allCourses
     } else {
-      allCourses.filter { com.example.data.util.LevelClassifier.matchesUserLevel(user, it.code, it.level) }
+      allCourses.filter {
+        com.example.data.util.LevelClassifier.matchesLevel(effectiveFilter, it.code) ||
+        com.example.data.util.LevelClassifier.matchesLevel(effectiveFilter, it.level)
+      }
     }
   }
 
@@ -123,17 +127,14 @@ fun StudyMaterialsScreen(
 
   val filteredMaterials = allMaterials.filter { mat ->
     val parentCourse = courseMap[mat.courseId]
-    val matchesLevel = if (user.role == "ADMIN") {
-      val isPrimary = user.adminRole.equals("PRIMARY", ignoreCase = true) ||
-          user.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-          user.adminRole.isBlank()
-      if (isPrimary) true
-      else com.example.data.util.LevelClassifier.matchesUserLevel(user, parentCourse?.code, parentCourse?.level ?: mat.title)
+    val matchesLevel = if (effectiveFilter == "All Levels") {
+      true
     } else {
       if (parentCourse != null) {
-        com.example.data.util.LevelClassifier.matchesUserLevel(user, parentCourse.code, parentCourse.level)
+        com.example.data.util.LevelClassifier.matchesLevel(effectiveFilter, parentCourse.code) ||
+        com.example.data.util.LevelClassifier.matchesLevel(effectiveFilter, parentCourse.level)
       } else {
-        com.example.data.util.LevelClassifier.matchesUserLevel(user, null, mat.title)
+        com.example.data.util.LevelClassifier.matchesLevel(effectiveFilter, mat.title)
       }
     }
     val matchesCourse = (selectedCourseId == null || mat.courseId == selectedCourseId)
@@ -225,6 +226,29 @@ fun StudyMaterialsScreen(
       )
 
       Spacer(modifier = Modifier.height(10.dp))
+
+      // Academic Level Filter Chips (Students & Admins can switch levels to access materials)
+      LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        items(levelOptions) { lvl ->
+          FilterChip(
+            selected = selectedLevelFilter == lvl,
+            onClick = {
+              selectedLevelFilter = lvl
+              selectedCourseId = null
+            },
+            label = { Text(lvl) },
+            colors = FilterChipDefaults.filterChipColors(
+              selectedContainerColor = MaterialTheme.colorScheme.primary,
+              selectedLabelColor = MaterialTheme.colorScheme.onPrimary
+            )
+          )
+        }
+      }
+
+      Spacer(modifier = Modifier.height(6.dp))
 
       // Course Filter Chips (All Courses, RAD 101, PHY 101, BIO 101)
       LazyRow(

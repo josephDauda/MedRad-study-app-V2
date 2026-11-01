@@ -1,5 +1,8 @@
 package com.example.data.repository
 
+import android.content.Context
+import android.util.Log
+import com.example.data.supabase.SupabaseClient
 import com.example.data.local.AppDatabase
 import com.example.data.local.entity.CourseEntity
 import com.example.data.local.entity.CourseLibraryEntity
@@ -28,7 +31,12 @@ data class AdminDashboardStats(
   val totalRevenueNaira: Double = 0.0
 )
 
-class AdminRepository(private val database: AppDatabase) {
+class AdminRepository(
+  private val database: AppDatabase,
+  private val context: Context? = null
+) {
+  private val tag = "AdminRepository"
+  private val supabaseClient: SupabaseClient? = context?.let { SupabaseClient(it) }
   private val userDao = database.userDao()
   private val academicDao = database.academicDao()
   private val questionDao = database.questionDao()
@@ -169,6 +177,41 @@ class AdminRepository(private val database: AppDatabase) {
     libraryDao.deleteLibrary(library)
   }
 
+  suspend fun deleteAttempt(attempt: ExamAttemptEntity): Result<Unit> = withContext(Dispatchers.IO) {
+    try {
+      examDao.deleteAttempt(attempt)
+      try {
+        if (!attempt.remoteId.isNullOrBlank()) {
+          supabaseClient?.restDelete("exam_attempts?id=eq.${attempt.remoteId}")
+        }
+      } catch (e: Exception) {
+        Log.w(tag, "Notice deleting remote attempt from Supabase: ${e.message}")
+      }
+      Result.success(Unit)
+    } catch (e: Exception) {
+      Result.failure(e)
+    }
+  }
+
+  suspend fun deleteAttempts(attempts: List<ExamAttemptEntity>): Result<Int> = withContext(Dispatchers.IO) {
+    try {
+      val ids = attempts.map { it.id }
+      if (ids.isNotEmpty()) {
+        examDao.deleteAttemptsByIds(ids)
+        for (att in attempts) {
+          try {
+            if (!att.remoteId.isNullOrBlank()) {
+              supabaseClient?.restDelete("exam_attempts?id=eq.${att.remoteId}")
+            }
+          } catch (_: Exception) {}
+        }
+      }
+      Result.success(ids.size)
+    } catch (e: Exception) {
+      Result.failure(e)
+    }
+  }
+
   fun getAllLibraries(): Flow<List<CourseLibraryEntity>> = libraryDao.getAllLibraries()
   fun getLibrariesForCourse(courseId: Long): Flow<List<CourseLibraryEntity>> = libraryDao.getLibrariesForCourse(courseId)
 
@@ -192,7 +235,12 @@ class AdminRepository(private val database: AppDatabase) {
         return@withContext Result.failure(SecurityException("Unauthorized: Only Primary Admin can create secondary admin accounts."))
       }
 
-      val existing = userDao.getUserByEmail(email.trim())
+      val trimmedEmail = email.trim().lowercase()
+      val existing = userDao.getUserByEmail(trimmedEmail)
+      val assignedLevel = if (assignedCourses.contains("All", ignoreCase = true)) "All Levels" else com.example.data.util.LevelClassifier.normalizeLevel(assignedCourses)
+      val cleanCourses = assignedCourses.trim().ifBlank { assignedLevel }
+      val cleanPerms = permissions.ifBlank { "materials,questions,announcements,libraries,exams" }
+
       if (existing != null) {
         if (existing.role == "ADMIN" && (existing.adminRole.equals("PRIMARY", ignoreCase = true) || existing.email.equals("admin@medrad.edu.ng", ignoreCase = true))) {
           return@withContext Result.failure(IllegalArgumentException("The Primary Administrator account cannot be modified."))
@@ -204,8 +252,9 @@ class AdminRepository(private val database: AppDatabase) {
           passwordHash = if (rawPassword.isNotBlank()) com.example.data.util.PasswordSecurity.hashPassword(rawPassword) else existing.passwordHash,
           role = "ADMIN",
           adminRole = "SECONDARY",
-          permissions = permissions.ifBlank { "materials,questions,announcements,libraries,exams" },
-          assignedCourses = assignedCourses.trim(),
+          permissions = cleanPerms,
+          assignedCourses = cleanCourses,
+          level = assignedLevel,
           isActive = true,
           isPremium = true
         )
@@ -213,20 +262,21 @@ class AdminRepository(private val database: AppDatabase) {
         return@withContext Result.success(updatedAdmin.id)
       }
 
+      val passToHash = if (rawPassword.isNotBlank()) rawPassword else "AdminPass2026!"
       val newAdmin = UserEntity(
         fullName = fullName.trim(),
-        email = email.trim(),
+        email = trimmedEmail,
         phoneNumber = phoneNumber.trim(),
-        passwordHash = com.example.data.util.PasswordSecurity.hashPassword(rawPassword),
+        passwordHash = com.example.data.util.PasswordSecurity.hashPassword(passToHash),
         role = "ADMIN",
         adminRole = "SECONDARY",
-        permissions = permissions.ifBlank { "materials,questions,announcements,libraries,exams" },
-        assignedCourses = assignedCourses.trim(),
+        permissions = cleanPerms,
+        assignedCourses = cleanCourses,
         isActive = true,
-        university = creator.university,
-        faculty = creator.faculty,
-        department = creator.department,
-        level = "Staff",
+        university = creator.university.ifBlank { "University of Maiduguri" },
+        faculty = creator.faculty.ifBlank { "College of Medical Sciences" },
+        department = creator.department.ifBlank { "Medical Radiography" },
+        level = assignedLevel,
         semester = "Academic Staff",
         isPremium = true
       )
@@ -258,9 +308,11 @@ class AdminRepository(private val database: AppDatabase) {
         return@withContext Result.failure(IllegalStateException("The Primary Admin account cannot be deactivated."))
       }
 
+      val assignedLevel = if (assignedCourses.contains("All", ignoreCase = true)) "All Levels" else com.example.data.util.LevelClassifier.normalizeLevel(assignedCourses)
       val updated = target.copy(
         permissions = permissions,
         assignedCourses = assignedCourses,
+        level = assignedLevel,
         isActive = isActive
       )
       userDao.updateUser(updated)

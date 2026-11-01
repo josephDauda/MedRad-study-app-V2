@@ -104,7 +104,7 @@ fun DashboardScreen(
   onNavigateToNotifications: () -> Unit = {},
   onStartPracticeAdvanced: (courseId: Long, questionCount: Int, customTitle: String?, customCode: String?, questionIds: List<Long>) -> Unit = { id, _, _, _, _ -> onStartPractice(id) }
 ) {
-  LaunchedEffect(user.id) {
+  LaunchedEffect(user.id, user.level) {
     dashboardViewModel.loadDashboard(user)
   }
 
@@ -126,9 +126,18 @@ fun DashboardScreen(
   if (pendingMockExam != null) {
     val exam = pendingMockExam!!
     val isDeadlinePassed = mockCard.deadlineTimestamp > 0L && System.currentTimeMillis() >= mockCard.deadlineTimestamp
+    val targetSession = mockCard.sessionId.trim().ifBlank { "Session 1" }
     val existingAttempt = recentAttempts.firstOrNull { att ->
-      att.examId == exam.id ||
-      (att.examTitle.equals(exam.title, ignoreCase = true) && (mockCard.courseCode.isBlank() || att.courseTitle.contains(mockCard.courseCode, ignoreCase = true)))
+      val attemptSession = try {
+        if (att.answersJson.startsWith("{")) {
+          org.json.JSONObject(att.answersJson).optJSONObject("_meta")?.optString("session_id", "Session 1") ?: "Session 1"
+        } else "Session 1"
+      } catch (_: Exception) { "Session 1" }
+      val matchesSession = attemptSession.equals(targetSession, ignoreCase = true)
+      val matchesExam = (att.examId == exam.id) ||
+        (att.examTitle.equals(exam.title, ignoreCase = true)) ||
+        (mockCard.courseCode.isNotBlank() && att.courseTitle.contains(mockCard.courseCode, ignoreCase = true))
+      matchesExam && matchesSession
     }
     val isAlreadyAttempted = existingAttempt != null
 
@@ -715,11 +724,9 @@ fun DashboardScreen(
                 .fillMaxWidth()
                 .height(90.dp)
                 .clickable {
-                  val exam = levelMatchingExams.find { it.id == mockCard.examId }
-                    ?: levelMatchingExams.find { it.courseId == resolvedCourseId }
-                    ?: levelMatchingExams.firstOrNull()
-                    ?: ExamEntity(
-                      id = mockCard.examId.takeIf { it > 0 } ?: System.currentTimeMillis(),
+                  val exam = if (isMockCardLevelMatch || mockCard.isConfigured) {
+                    ExamEntity(
+                      id = if (mockCard.examId > 0) mockCard.examId else System.currentTimeMillis(),
                       courseId = resolvedCourseId,
                       title = mockCard.examTitle.ifBlank { "${mockCard.courseCode.ifBlank { "${user.level} CBT" }} Mock CBT" },
                       description = "Official departmental timed CBT examination simulation.",
@@ -727,6 +734,17 @@ fun DashboardScreen(
                       totalQuestions = if (mockCard.questionCount > 0) mockCard.questionCount else 15,
                       isPublished = true
                     )
+                  } else {
+                    levelMatchingExams.firstOrNull() ?: ExamEntity(
+                      id = System.currentTimeMillis(),
+                      courseId = resolvedCourseId,
+                      title = "${user.level} Mock CBT",
+                      description = "Official departmental timed CBT examination simulation.",
+                      durationMinutes = 30,
+                      totalQuestions = 15,
+                      isPublished = true
+                    )
+                  }
                   pendingMockExam = exam
                 },
               shape = RoundedCornerShape(18.dp),

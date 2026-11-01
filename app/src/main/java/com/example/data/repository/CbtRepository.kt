@@ -354,23 +354,31 @@ class CbtRepository(
     userId: Long,
     examId: Long?,
     examTitle: String,
-    courseCode: String? = null
+    courseCode: String? = null,
+    sessionId: String? = null
   ): ExamAttemptEntity? {
     return withContext(Dispatchers.IO) {
-      // 1. Direct match by examId if available
-      if (examId != null && examId > 0) {
-        val attempt = examDao.getAttemptByUserIdAndExamId(userId, examId)
-        if (attempt != null) return@withContext attempt
-      }
-      // 2. Match by title or course code among recent user attempts
+      val targetSession = sessionId?.trim()?.ifBlank { "Session 1" } ?: "Session 1"
       val userAttempts = examDao.getAttemptsForUserList(userId)
+
       userAttempts.firstOrNull { attempt ->
-        (examId != null && attempt.examId == examId) ||
-        (attempt.examTitle.isNotBlank() && attempt.examTitle.equals(examTitle, ignoreCase = true)) ||
-        (!courseCode.isNullOrBlank() && (
-          attempt.examTitle.contains(courseCode, ignoreCase = true) ||
-          attempt.courseTitle.contains(courseCode, ignoreCase = true)
-        ))
+        val attemptSession = try {
+          if (attempt.answersJson.startsWith("{")) {
+            org.json.JSONObject(attempt.answersJson).optJSONObject("_meta")?.optString("session_id", "Session 1") ?: "Session 1"
+          } else "Session 1"
+        } catch (_: Exception) { "Session 1" }
+
+        // Session differentiation: only block retake if attempt belongs to the active target session
+        val matchesSession = attemptSession.equals(targetSession, ignoreCase = true)
+
+        val matchesExam = (examId != null && examId > 0 && attempt.examId == examId) ||
+            (attempt.examTitle.isNotBlank() && attempt.examTitle.equals(examTitle.trim(), ignoreCase = true)) ||
+            (!courseCode.isNullOrBlank() && (
+              attempt.examTitle.contains(courseCode.trim(), ignoreCase = true) ||
+              attempt.courseTitle.contains(courseCode.trim(), ignoreCase = true)
+            ))
+
+        matchesExam && matchesSession
       }
     }
   }
