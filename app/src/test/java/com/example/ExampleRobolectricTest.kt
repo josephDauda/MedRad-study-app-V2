@@ -1232,6 +1232,88 @@ class ExampleRobolectricTest {
     org.junit.Assert.assertNotNull(dataUri)
     org.junit.Assert.assertTrue(dataUri!!.startsWith("data:image/jpeg;base64,"))
   }
+
+  @Test
+  fun `SupabaseRealtimeManager suppresses self-echo events matching local clientId`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val okHttpClient = okhttp3.OkHttpClient()
+    val receivedEvents = mutableListOf<String>()
+
+    val manager = com.example.data.supabase.SupabaseRealtimeManager(context, okHttpClient) { table, type, record ->
+      receivedEvents.add("$table:$type:${record.optString("id")}")
+    }
+
+    // Message originating from THIS client (self-echo over WebSocket)
+    val selfEchoJson = org.json.JSONObject().apply {
+      put("event", "broadcast")
+      put("topic", "realtime:public:announcements")
+      put("payload", org.json.JSONObject().apply {
+        put("table", "announcements")
+        put("type", "INSERT")
+        put("sender_client_id", manager.clientId) // Same client ID
+        put("record", org.json.JSONObject().apply {
+          put("id", "ann_self_1")
+          put("title", "Self Broadcast")
+        })
+      })
+    }
+
+    manager.handleIncomingMessage(selfEchoJson.toString())
+
+    org.junit.Assert.assertTrue("Self-echo message should be suppressed and not delivered to callback", receivedEvents.isEmpty())
+  }
+
+  @Test
+  fun `SupabaseRealtimeManager deduplicates rapid concurrent CDC and broadcast events for same record`() {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val okHttpClient = okhttp3.OkHttpClient()
+    val receivedEvents = mutableListOf<String>()
+
+    val manager = com.example.data.supabase.SupabaseRealtimeManager(context, okHttpClient) { table, type, record ->
+      receivedEvents.add("$table:$type:${record.optString("id")}")
+    }
+
+    val externalSenderId = java.util.UUID.randomUUID().toString()
+
+    // 1. First event arriving via broadcast
+    val broadcastJson = org.json.JSONObject().apply {
+      put("event", "broadcast")
+      put("topic", "realtime:public:announcements")
+      put("payload", org.json.JSONObject().apply {
+        put("table", "announcements")
+        put("type", "INSERT")
+        put("sender_client_id", externalSenderId)
+        put("record", org.json.JSONObject().apply {
+          put("id", "ann_remote_101")
+          put("title", "Exam Schedule Published")
+        })
+      })
+    }
+    manager.handleIncomingMessage(broadcastJson.toString())
+    assertEquals(1, receivedEvents.size)
+    assertEquals("announcements:INSERT:ann_remote_101", receivedEvents[0])
+
+    // 2. Duplicate event arriving moments later via postgres_changes CDC
+    val cdcJson = org.json.JSONObject().apply {
+      put("event", "postgres_changes")
+      put("topic", "realtime:public:announcements")
+      put("payload", org.json.JSONObject().apply {
+        put("data", org.json.JSONObject().apply {
+          put("table", "announcements")
+          put("type", "INSERT")
+          put("record", org.json.JSONObject().apply {
+            put("id", "ann_remote_101")
+            put("title", "Exam Schedule Published")
+          })
+        })
+      })
+    }
+    manager.handleIncomingMessage(cdcJson.toString())
+
+    // Must still be 1 (duplicate within 15 seconds dropped)
+    assertEquals("Duplicate event must be dropped by sliding-window deduplication", 1, receivedEvents.size)
+  }
 }
+
 
 

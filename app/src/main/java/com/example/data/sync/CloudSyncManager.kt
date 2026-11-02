@@ -780,7 +780,7 @@ class CloudSyncManager(
   private suspend fun handleRealtimeUpdate(table: String, eventType: String, record: JSONObject) = withContext(Dispatchers.IO) {
     when (table) {
       "announcements" -> {
-        pullAnnouncements()
+        // Redundant HTTP re-fetch removed: record is already parsed and stored in Room by handleRealtimeEvent()
       }
       "exam_attempts" -> {
         pullExamAttempts()
@@ -2202,7 +2202,6 @@ class CloudSyncManager(
       if (res.isFailure) {
         Log.e(tag, "broadcastQuestion to Supabase failed: ${res.exceptionOrNull()?.message}")
       }
-      realtimeManager?.dispatchRealtimeEvent("questions", "INSERT", payload)
       Result.success(res.isSuccess)
     } catch (e: Exception) {
       Log.e(tag, "broadcastQuestion error: ${e.message}", e)
@@ -2245,7 +2244,17 @@ class CloudSyncManager(
       if (res.isFailure) {
         Log.e(tag, "broadcastMaterial to Supabase failed: ${res.exceptionOrNull()?.message}")
       }
-      realtimeManager?.dispatchRealtimeEvent("study_materials", "INSERT", payload)
+
+      // Notify students of new study material through existing announcements channel without heavy payload
+      if (res.isSuccess) {
+        val courseCode = parentCourse?.code ?: "Departmental Course"
+        broadcastAnnouncement(
+          title = "New Study Material: ${mat.title}",
+          message = "New ${mat.contentType} posted for $courseCode: ${mat.title}",
+          priority = "Normal",
+          target = courseCode
+        )
+      }
       Result.success(res.isSuccess)
     } catch (e: Exception) {
       Log.e(tag, "broadcastMaterial error: ${e.message}", e)
@@ -2286,7 +2295,6 @@ class CloudSyncManager(
       if (res.isFailure) {
         Log.e(tag, "broadcastLibrary to Supabase failed: ${res.exceptionOrNull()?.message}")
       }
-      realtimeManager?.dispatchRealtimeEvent("course_libraries", "INSERT", payload)
       Result.success(res.isSuccess)
     } catch (e: Exception) {
       Log.e(tag, "broadcastLibrary error: ${e.message}", e)
@@ -2312,7 +2320,6 @@ class CloudSyncManager(
       if (res.isFailure) {
         Log.e(tag, "broadcastCourse to Supabase failed: ${res.exceptionOrNull()?.message}")
       }
-      realtimeManager?.dispatchRealtimeEvent("courses", "INSERT", payload)
       Result.success(res.isSuccess)
     } catch (e: Exception) {
       Log.e(tag, "broadcastCourse error: ${e.message}", e)
@@ -2329,9 +2336,10 @@ class CloudSyncManager(
         supabaseClient.restDelete("course_libraries?course_id=eq.$targetId")
         supabaseClient.restDelete("exams?course_id=eq.$targetId")
         val res = supabaseClient.restDelete("courses?id=eq.$targetId")
-        realtimeManager?.dispatchRealtimeEvent("courses", "DELETE", JSONObject().put("id", targetId))
+        database.academicDao().deleteCourse(course)
         Result.success(res.isSuccess)
       } else {
+        database.academicDao().deleteCourse(course)
         Result.success(true)
       }
     } catch (e: Exception) {
@@ -2375,7 +2383,6 @@ class CloudSyncManager(
       if (res.isFailure) {
         Log.e(tag, "broadcastExam to Supabase failed: ${res.exceptionOrNull()?.message}")
       }
-      realtimeManager?.dispatchRealtimeEvent("exams", "INSERT", payload)
       Result.success(res.isSuccess)
     } catch (e: Exception) {
       Log.e(tag, "broadcastExam error: ${e.message}", e)
@@ -2389,9 +2396,10 @@ class CloudSyncManager(
       if (!targetId.isNullOrBlank() && targetId.length == 36) {
         supabaseClient.restDelete("questions?exam_id=eq.$targetId")
         val res = supabaseClient.restDelete("exams?id=eq.$targetId")
-        realtimeManager?.dispatchRealtimeEvent("exams", "DELETE", JSONObject().put("id", targetId))
+        database.examDao().deleteExam(exam)
         Result.success(res.isSuccess)
       } else {
+        database.examDao().deleteExam(exam)
         Result.success(true)
       }
     } catch (e: Exception) {
@@ -2409,9 +2417,10 @@ class CloudSyncManager(
       val targetId = q.remoteId
       if (!targetId.isNullOrBlank() && targetId.length == 36) {
         val res = supabaseClient.restDelete("questions?id=eq.$targetId")
-        realtimeManager?.dispatchRealtimeEvent("questions", "DELETE", JSONObject().put("id", targetId))
+        database.questionDao().deleteQuestion(q)
         Result.success(res.isSuccess)
       } else {
+        database.questionDao().deleteQuestion(q)
         Result.success(true)
       }
     } catch (e: Exception) {
@@ -2438,9 +2447,10 @@ class CloudSyncManager(
       val targetId = mat.remoteId
       if (!targetId.isNullOrBlank() && targetId.length == 36) {
         val res = supabaseClient.restDelete("study_materials?id=eq.$targetId")
-        realtimeManager?.dispatchRealtimeEvent("study_materials", "DELETE", JSONObject().put("id", targetId))
+        database.studyMaterialDao().deleteMaterial(mat)
         Result.success(res.isSuccess)
       } else {
+        database.studyMaterialDao().deleteMaterial(mat)
         Result.success(true)
       }
     } catch (e: Exception) {
@@ -2458,9 +2468,10 @@ class CloudSyncManager(
       val targetId = lib.remoteId
       if (!targetId.isNullOrBlank() && targetId.length == 36) {
         val res = supabaseClient.restDelete("course_libraries?id=eq.$targetId")
-        realtimeManager?.dispatchRealtimeEvent("course_libraries", "DELETE", JSONObject().put("id", targetId))
+        database.courseLibraryDao().deleteLibrary(lib)
         Result.success(res.isSuccess)
       } else {
+        database.courseLibraryDao().deleteLibrary(lib)
         Result.success(true)
       }
     } catch (e: Exception) {
