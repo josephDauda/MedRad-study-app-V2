@@ -850,7 +850,7 @@ fun AdminQuestionsView(
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically
     ) {
-      Column {
+      Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
         Text(
           text = if (isPrimary) "Question Bank (${displayQuestions.size} of ${questions.size})" else "Question Bank: $secondaryAdminLevel (${displayQuestions.size})",
           style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
@@ -866,11 +866,12 @@ fun AdminQuestionsView(
         if (displayQuestions.isNotEmpty() && isPrimary) {
           OutlinedButton(
             onClick = { showClearConfirm = true },
+            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
             shape = RoundedCornerShape(8.dp)
           ) {
             Icon(Icons.Default.Delete, contentDescription = null, tint = ErrorRed, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(4.dp))
-            Text("Clear All", color = ErrorRed)
+            Text("Clear All", color = ErrorRed, maxLines = 1)
           }
         }
         Button(
@@ -1087,15 +1088,17 @@ fun AdminExamsView(
       Text(
         text = if (isPrimary) "Mock Examination Builder (${displayExams.size})" else "Mock Exam Builder: $secondaryAdminLevel (${displayExams.size})",
         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-        color = MaterialTheme.colorScheme.onSurface
+        color = MaterialTheme.colorScheme.onSurface,
+        modifier = Modifier.weight(1f).padding(end = 8.dp)
       )
       Button(
         onClick = onAddExam,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
         shape = RoundedCornerShape(8.dp)
       ) {
         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
         Spacer(modifier = Modifier.width(4.dp))
-        Text("Build Exam")
+        Text("Build Exam", maxLines = 1)
       }
     }
 
@@ -1183,7 +1186,7 @@ fun AdminMaterialsView(
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically
     ) {
-      Column {
+      Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
         Text(
           text = if (isPrimary) "Study Materials & Notes (${displayMaterials.size} of ${materials.size})" else "Study Materials: $secondaryAdminLevel (${displayMaterials.size})",
           style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
@@ -1197,11 +1200,12 @@ fun AdminMaterialsView(
       }
       Button(
         onClick = onAddMaterial,
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
         shape = RoundedCornerShape(8.dp)
       ) {
         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
         Spacer(modifier = Modifier.width(4.dp))
-        Text("Upload Note")
+        Text("Upload Note", maxLines = 1)
       }
     }
 
@@ -1321,7 +1325,7 @@ fun AdminLibrariesView(
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically
     ) {
-      Column {
+      Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
         Text(
           text = if (isPrimary) "Course Libraries & Drive Resources (${displayLibraries.size})" else "Drive Libraries: $secondaryAdminLevel (${displayLibraries.size})",
           style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
@@ -1339,11 +1343,12 @@ fun AdminLibrariesView(
           containerColor = MaterialTheme.colorScheme.primary,
           contentColor = MaterialTheme.colorScheme.onPrimary
         ),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
         shape = RoundedCornerShape(8.dp)
       ) {
         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
         Spacer(modifier = Modifier.width(4.dp))
-        Text("Add Library")
+        Text("Add Library", maxLines = 1)
       }
     }
 
@@ -1748,7 +1753,7 @@ fun AdminSyllabusView(
       horizontalArrangement = Arrangement.SpaceBetween,
       verticalAlignment = Alignment.CenterVertically
     ) {
-      Column {
+      Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
         Text(
           text = if (isPrimary) "Curriculum & Syllabus Management" else "Curriculum & Syllabus ($secondaryAdminLevel)",
           style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
@@ -1766,11 +1771,12 @@ fun AdminSyllabusView(
           containerColor = MaterialTheme.colorScheme.primary,
           contentColor = MaterialTheme.colorScheme.onPrimary
         ),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
         shape = RoundedCornerShape(8.dp)
       ) {
         Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
         Spacer(modifier = Modifier.width(4.dp))
-        Text("Add Syllabus")
+        Text("Add Syllabus", maxLines = 1)
       }
     }
 
@@ -2715,8 +2721,8 @@ fun AddQuestionDialog(
                 modifier = Modifier.fillMaxWidth().height(150.dp)
               ) {
                 Box(modifier = Modifier.fillMaxSize()) {
-                  coil.compose.AsyncImage(
-                    model = imageUrl,
+                  com.example.ui.components.QuestionDiagramImage(
+                    imageUrl = imageUrl,
                     contentDescription = "Diagram Preview",
                     modifier = Modifier.fillMaxSize(),
                     contentScale = androidx.compose.ui.layout.ContentScale.Fit

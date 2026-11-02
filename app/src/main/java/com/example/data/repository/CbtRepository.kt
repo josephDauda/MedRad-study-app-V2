@@ -268,7 +268,11 @@ class CbtRepository(
             var remoteAttemptId: String? = null
             if (!resolvedExamId.isNullOrBlank() && !finalUid.isNullOrBlank()) {
               val generatedAttemptId = java.util.UUID.randomUUID().toString()
-              val pct = (attempt.score.toDouble() * 100.0) / maxOf(attempt.totalQuestions, 1)
+              val pct = if (attempt.totalQuestions > 0) {
+                (attempt.correctAnswers.toDouble() * 100.0) / attempt.totalQuestions
+              } else {
+                attempt.score.toDouble()
+              }
               val isPassed = pct >= 50.0
               val isoDate = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss.SSS'Z'", java.util.Locale.US).apply {
                 timeZone = java.util.TimeZone.getTimeZone("UTC")
@@ -284,6 +288,7 @@ class CbtRepository(
                 }
                 put("score", attempt.score)
                 put("total_questions", attempt.totalQuestions)
+                put("correct_answers", attempt.correctAnswers)
                 put("duration_seconds", attempt.timeSpentSeconds)
                 put("time_spent_seconds", attempt.timeSpentSeconds)
                 put("status", "submitted")
@@ -291,22 +296,40 @@ class CbtRepository(
                 put("passed", isPassed)
                 put("is_passed", isPassed)
                 put("percentage", pct)
+                if (attempt.answersJson.isNotBlank()) {
+                  put("answers_json", attempt.answersJson)
+                }
                 if (localUser != null) {
                   put("student_name", localUser.fullName)
                   put("student_email", localUser.email)
                   put("student_phone", localUser.phoneNumber)
+                  put("student_level", localUser.level)
                 }
               }
+
               var directRes = client.restPost("exam_attempts", tablePayload.toString(), upsert = false)
               if (directRes.isFailure) {
                 val err = directRes.exceptionOrNull()?.message ?: ""
-                if (err.contains("PGRST204") || err.contains("Could not find the") || err.contains("column") || err.contains("student_name")) {
-                  tablePayload.remove("student_name")
-                  tablePayload.remove("student_email")
-                  tablePayload.remove("student_phone")
-                  directRes = client.restPost("exam_attempts", tablePayload.toString(), upsert = false)
+                Log.w(tag, "Initial exam_attempts insert failed ($err), retrying with minimal schema...")
+                val minimalPayload = org.json.JSONObject().apply {
+                  put("id", generatedAttemptId)
+                  put("user_id", finalUid)
+                  put("exam_id", resolvedExamId)
+                  if (!remoteCourseId.isNullOrBlank()) put("course_id", remoteCourseId)
+                  put("score", attempt.score)
+                  put("total_questions", attempt.totalQuestions)
+                  put("duration_seconds", attempt.timeSpentSeconds)
+                  put("status", "submitted")
+                  put("submitted_at", isoDate)
+                  if (attempt.answersJson.isNotBlank()) put("answers_json", attempt.answersJson)
+                }
+                directRes = client.restPost("exam_attempts", minimalPayload.toString(), upsert = false)
+                if (directRes.isFailure) {
+                  minimalPayload.remove("answers_json")
+                  directRes = client.restPost("exam_attempts", minimalPayload.toString(), upsert = false)
                 }
               }
+
               if (directRes.isSuccess) {
                 remoteAttemptId = generatedAttemptId
                 Log.i(tag, "Mock exam attempt synced to Supabase successfully: $generatedAttemptId")

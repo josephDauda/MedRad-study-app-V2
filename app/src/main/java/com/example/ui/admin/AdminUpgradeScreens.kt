@@ -1507,7 +1507,13 @@ fun AdminScoreExportView(
           }
 
           val total = if (att.totalQuestions > 0) att.totalQuestions else 15
-          val rawScore = if (att.score > total) (att.score * total) / 100 else att.score
+          val rawScore = if (att.correctAnswers > 0) {
+            att.correctAnswers
+          } else if (att.score > total) {
+            (att.score * total) / 100
+          } else {
+            att.score
+          }
           val percent = if (total > 0) (rawScore * 100) / total else 0
           val passed = percent >= 50
 
@@ -1526,12 +1532,18 @@ fun AdminScoreExportView(
               horizontalArrangement = Arrangement.SpaceBetween,
               verticalAlignment = Alignment.CenterVertically
             ) {
-              Column(modifier = Modifier.weight(1f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+              Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  modifier = Modifier.fillMaxWidth()
+                ) {
                   Text(
                     text = candidateName,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onSurface
+                    color = MaterialTheme.colorScheme.onSurface,
+                    modifier = Modifier.weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
                   )
                   Spacer(modifier = Modifier.width(6.dp))
                   Surface(
@@ -1542,6 +1554,7 @@ fun AdminScoreExportView(
                       text = candidateSession,
                       style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 9.sp),
                       color = ProfessionalBlue,
+                      maxLines = 1,
                       modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                   }

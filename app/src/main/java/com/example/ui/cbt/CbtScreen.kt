@@ -684,8 +684,8 @@ fun QuestionView(
                 .padding(8.dp),
               horizontalAlignment = Alignment.CenterHorizontally
             ) {
-              coil.compose.AsyncImage(
-                model = question.imageUrl,
+              com.example.ui.components.QuestionDiagramImage(
+                imageUrl = question.imageUrl,
                 contentDescription = "Radiographic anatomical diagram or question illustration",
                 modifier = Modifier
                   .fillMaxWidth()

@@ -8,7 +8,8 @@ import android.util.Base64
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
-import java.io.InputStream
+import java.io.File
+import java.io.FileInputStream
 
 object ImageCompressor {
 
@@ -16,7 +17,7 @@ object ImageCompressor {
    * Compresses an image picked from the phone gallery/storage to a medium resolution (max 800x800)
    * JPEG encoded in Base64 data URI format ("data:image/jpeg;base64,...").
    * This is optimal for medical radiography diagrams, anatomical sketches, and CBT diagrams,
-   * avoiding consuming Supabase free storage quotas and loading universally and offline via Coil.
+   * avoiding consuming Supabase free storage quotas and loading universally and offline.
    */
   suspend fun compressToMediumDataUri(
     context: Context,
@@ -25,19 +26,39 @@ object ImageCompressor {
     quality: Int = 78
   ): Result<String> = withContext(Dispatchers.IO) {
     try {
+      val rawBytes = readBytesFromUri(context, uri)
+        ?: return@withContext Result.failure(Exception("Unable to read image bytes from device. Please check file access permissions."))
+
+      compressBytesToMediumDataUri(rawBytes, maxDimension, quality)
+    } catch (e: Exception) {
+      Result.failure(e)
+    }
+  }
+
+  /**
+   * Compresses raw image bytes to a medium resolution Base64 data URI.
+   */
+  fun compressBytesToMediumDataUri(
+    rawBytes: ByteArray,
+    maxDimension: Int = 800,
+    quality: Int = 78
+  ): Result<String> {
+    try {
+      if (rawBytes.isEmpty()) {
+        return Result.failure(Exception("Image file is empty."))
+      }
+
       // 1. Decode bounds
       val options = BitmapFactory.Options().apply {
         inJustDecodeBounds = true
       }
-      context.contentResolver.openInputStream(uri)?.use { stream ->
-        BitmapFactory.decodeStream(stream, null, options)
-      } ?: return@withContext Result.failure(Exception("Unable to read image from device."))
+      BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, options)
 
       val origWidth = options.outWidth
       val origHeight = options.outHeight
 
       if (origWidth <= 0 || origHeight <= 0) {
-        return@withContext Result.failure(Exception("Invalid image dimensions."))
+        return Result.failure(Exception("Invalid or unsupported image format."))
       }
 
       // 2. Compute sample size
@@ -51,9 +72,8 @@ object ImageCompressor {
         inPreferredConfig = Bitmap.Config.RGB_565 // Memory and size optimal
       }
 
-      val sampledBitmap = context.contentResolver.openInputStream(uri)?.use { stream ->
-        BitmapFactory.decodeStream(stream, null, decodeOptions)
-      } ?: return@withContext Result.failure(Exception("Could not decode image bitmap."))
+      val sampledBitmap = BitmapFactory.decodeByteArray(rawBytes, 0, rawBytes.size, decodeOptions)
+        ?: return Result.failure(Exception("Could not decode image bitmap."))
 
       // 3. Scale down precisely to fit within maxDimension
       val currentW = sampledBitmap.width
@@ -79,9 +99,57 @@ object ImageCompressor {
       val base64String = Base64.encodeToString(byteArray, Base64.NO_WRAP)
       val dataUri = "data:image/jpeg;base64,$base64String"
 
-      Result.success(dataUri)
+      return Result.success(dataUri)
     } catch (e: Exception) {
-      Result.failure(e)
+      return Result.failure(e)
     }
+  }
+
+  /**
+   * Resilient fallback reader for Android ContentResolver and File URIs.
+   * Handles PhotoPicker URIs, Downloads URIs, DocumentProvider URIs, and direct file paths.
+   */
+  private fun readBytesFromUri(context: Context, uri: Uri): ByteArray? {
+    // 1. Try ContentResolver openInputStream
+    try {
+      context.contentResolver.openInputStream(uri)?.use { stream ->
+        val bytes = stream.readBytes()
+        if (bytes.isNotEmpty()) return bytes
+      }
+    } catch (_: Throwable) {}
+
+    // 2. Try openFileDescriptor
+    try {
+      context.contentResolver.openFileDescriptor(uri, "r")?.use { pfd ->
+        FileInputStream(pfd.fileDescriptor).use { fis ->
+          val bytes = fis.readBytes()
+          if (bytes.isNotEmpty()) return bytes
+        }
+      }
+    } catch (_: Throwable) {}
+
+    // 3. Try openAssetFileDescriptor
+    try {
+      context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { afd ->
+        afd.createInputStream().use { stream ->
+          val bytes = stream.readBytes()
+          if (bytes.isNotEmpty()) return bytes
+        }
+      }
+    } catch (_: Throwable) {}
+
+    // 4. Try Direct File reading if file scheme or path
+    try {
+      val path = uri.path
+      if (!path.isNullOrBlank()) {
+        val file = File(path)
+        if (file.exists() && file.canRead()) {
+          val bytes = file.readBytes()
+          if (bytes.isNotEmpty()) return bytes
+        }
+      }
+    } catch (_: Throwable) {}
+
+    return null
   }
 }

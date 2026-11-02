@@ -685,8 +685,17 @@ class CbtViewModel(
       val jsonAnswers = JSONObject()
 
       state.questions.forEachIndexed { index, question ->
-        val chosen = state.userAnswers[index]
-        val isCorrect = (chosen != null && chosen.equals(question.correctAnswer, ignoreCase = true))
+        val chosen = state.userAnswers[index]?.trim()
+        val correct = question.correctAnswer.trim()
+        val isCorrect = chosen != null && (
+          chosen.equals(correct, ignoreCase = true) ||
+          (correct.length == 1 && chosen.startsWith(correct, ignoreCase = true)) ||
+          (chosen.length == 1 && correct.startsWith(chosen, ignoreCase = true)) ||
+          (chosen.equals("A", ignoreCase = true) && question.optionA.isNotBlank() && correct.equals(question.optionA.trim(), ignoreCase = true)) ||
+          (chosen.equals("B", ignoreCase = true) && question.optionB.isNotBlank() && correct.equals(question.optionB.trim(), ignoreCase = true)) ||
+          (chosen.equals("C", ignoreCase = true) && question.optionC.isNotBlank() && correct.equals(question.optionC.trim(), ignoreCase = true)) ||
+          (chosen.equals("D", ignoreCase = true) && question.optionD.isNotBlank() && correct.equals(question.optionD.trim(), ignoreCase = true))
+        )
         if (chosen == null) {
           unansweredCount++
         } else if (isCorrect) {

@@ -20,7 +20,11 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ArrowForward
+import androidx.compose.material.icons.filled.CalendarToday
+import com.example.data.util.CalendarUtil
+import com.example.data.util.CalendarDayItem
 import androidx.compose.material.icons.filled.Assignment
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.compose.material.icons.filled.Book
@@ -42,6 +46,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -1055,14 +1060,23 @@ fun DashboardScreen(
 /**
  * Modern Weekday Calendar Strip inspired by reference image images (4).jpeg
  */
+/**
+ * Modern Weekday Calendar Strip
+ * Automatically and precisely calculates the 7 days of the week (Monday through Sunday)
+ * using true calendar math across all month boundaries, leap years, and year-ends.
+ * Enables interactive date selection, week navigation, and persistent "Today" tracking.
+ */
 @Composable
 fun WeekdayCalendarStrip() {
-  val calendar = Calendar.getInstance()
-  val todayDayOfMonth = calendar.get(Calendar.DAY_OF_MONTH)
-  val todayDayOfWeek = calendar.get(Calendar.DAY_OF_WEEK) // 1=Sun, 2=Mon...
-
-  // Days: Mon to Sun
-  val dayNames = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
+  var weekOffset by remember { mutableStateOf(0) }
+  val weekDays = remember(weekOffset) {
+    CalendarUtil.getWeekDays(weekOffset = weekOffset)
+  }
+  val todayKey = remember { CalendarUtil.getTodayKey() }
+  var selectedDateKey by remember { mutableStateOf(todayKey) }
+  val monthYearHeader = remember(weekDays) {
+    CalendarUtil.getWeekHeaderLabel(weekDays)
+  }
 
   Surface(
     modifier = Modifier.fillMaxWidth(),
@@ -1070,62 +1084,155 @@ fun WeekdayCalendarStrip() {
     color = MaterialTheme.colorScheme.surface,
     border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f))
   ) {
-    Row(
+    Column(
       modifier = Modifier
         .fillMaxWidth()
-        .padding(horizontal = 8.dp, vertical = 10.dp),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
+        .padding(horizontal = 8.dp, vertical = 8.dp)
     ) {
-      dayNames.forEachIndexed { index, name ->
-        // Assuming Wednesday or today is active
-        val dayNumber = (todayDayOfMonth - (todayDayOfWeek - 2) + index).coerceAtLeast(1)
-        val isToday = (index == (todayDayOfWeek - 2 + 7) % 7)
+      // Sleek Header with Month/Year and navigation arrows
+      Row(
+        modifier = Modifier
+          .fillMaxWidth()
+          .padding(horizontal = 6.dp, vertical = 2.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          Icon(
+            imageVector = Icons.Default.CalendarToday,
+            contentDescription = null,
+            tint = MaterialTheme.colorScheme.primary,
+            modifier = Modifier.size(13.dp)
+          )
+          Spacer(modifier = Modifier.width(6.dp))
+          Text(
+            text = monthYearHeader,
+            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onSurface
+          )
+        }
 
-        if (isToday) {
-          // Active pill
-          Surface(
-            shape = RoundedCornerShape(16.dp),
-            color = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.width(42.dp)
-          ) {
-            Column(
-              modifier = Modifier.padding(vertical = 8.dp),
-              horizontalAlignment = Alignment.CenterHorizontally
+        Row(verticalAlignment = Alignment.CenterVertically) {
+          if (weekOffset != 0) {
+            Surface(
+              shape = RoundedCornerShape(8.dp),
+              color = MaterialTheme.colorScheme.primary.copy(alpha = 0.15f),
+              modifier = Modifier
+                .padding(end = 4.dp)
+                .clickable {
+                  weekOffset = 0
+                  selectedDateKey = todayKey
+                }
             ) {
               Text(
-                text = name,
-                style = MaterialTheme.typography.labelSmall,
-                color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.8f),
-                fontSize = 11.sp
-              )
-              Spacer(modifier = Modifier.height(3.dp))
-              Text(
-                text = "$dayNumber",
-                style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                color = MaterialTheme.colorScheme.onPrimary
+                text = "Today",
+                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp),
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
               )
             }
           }
-        } else {
-          Column(
-            modifier = Modifier
-              .width(38.dp)
-              .padding(vertical = 6.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+          IconButton(
+            onClick = { weekOffset-- },
+            modifier = Modifier.size(26.dp)
           ) {
-            Text(
-              text = name,
-              style = MaterialTheme.typography.labelSmall,
-              color = TextMuted,
-              fontSize = 11.sp
+            Icon(
+              imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+              contentDescription = "Previous Week",
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.size(14.dp)
             )
-            Spacer(modifier = Modifier.height(3.dp))
-            Text(
-              text = "$dayNumber",
-              style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
-              color = MaterialTheme.colorScheme.onSurface
+          }
+          IconButton(
+            onClick = { weekOffset++ },
+            modifier = Modifier.size(26.dp)
+          ) {
+            Icon(
+              imageVector = Icons.AutoMirrored.Filled.ArrowForward,
+              contentDescription = "Next Week",
+              tint = MaterialTheme.colorScheme.onSurfaceVariant,
+              modifier = Modifier.size(14.dp)
             )
+          }
+        }
+      }
+
+      Spacer(modifier = Modifier.height(4.dp))
+
+      // 7-day strip (Mon - Sun) with equal proportional weights for responsive across-device layout
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically
+      ) {
+        weekDays.forEach { day ->
+          val isSelected = (day.dateKey == selectedDateKey)
+          val isToday = day.isToday
+
+          Box(
+            modifier = Modifier
+              .weight(1f)
+              .padding(horizontal = 2.dp)
+              .clip(RoundedCornerShape(16.dp))
+              .clickable { selectedDateKey = day.dateKey },
+            contentAlignment = Alignment.Center
+          ) {
+            if (isSelected) {
+              // Active pill matching reference image design
+              Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.fillMaxWidth()
+              ) {
+                Column(
+                  modifier = Modifier.padding(vertical = 8.dp),
+                  horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                  Text(
+                    text = day.dayName,
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onPrimary.copy(alpha = 0.85f),
+                    fontSize = 11.sp
+                  )
+                  Spacer(modifier = Modifier.height(3.dp))
+                  Text(
+                    text = "${day.dayNumber}",
+                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                    color = MaterialTheme.colorScheme.onPrimary
+                  )
+                }
+              }
+            } else {
+              // Inactive day
+              Column(
+                modifier = Modifier
+                  .fillMaxWidth()
+                  .padding(vertical = 6.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+              ) {
+                Text(
+                  text = day.dayName,
+                  style = MaterialTheme.typography.labelSmall,
+                  color = TextMuted,
+                  fontSize = 11.sp
+                )
+                Spacer(modifier = Modifier.height(3.dp))
+                Text(
+                  text = "${day.dayNumber}",
+                  style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium),
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+                if (isToday) {
+                  Spacer(modifier = Modifier.height(3.dp))
+                  Box(
+                    modifier = Modifier
+                      .size(4.dp)
+                      .clip(CircleShape)
+                      .background(MaterialTheme.colorScheme.primary)
+                  )
+                }
+              }
+            }
           }
         }
       }

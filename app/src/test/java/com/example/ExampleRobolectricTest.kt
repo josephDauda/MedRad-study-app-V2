@@ -1121,6 +1121,117 @@ class ExampleRobolectricTest {
     val lookup2 = container.database.examDao().getAttemptById(id2)
     org.junit.Assert.assertNull("Batch deleted attempt must not exist in Room DB", lookup2)
   }
+
+  @Test
+  fun `TEST AG - Sunday Nov 1 2026 calendar calculates Mon Oct 26 to Sun Nov 1 with Sun 1 highlighted`() {
+    val refCal = java.util.Calendar.getInstance().apply {
+      set(2026, java.util.Calendar.NOVEMBER, 1, 14, 30, 0) // Sunday Nov 1, 2026
+    }
+    val weekDays = com.example.data.util.CalendarUtil.getWeekDays(refCal)
+    assertEquals(7, weekDays.size)
+
+    assertEquals("Mon", weekDays[0].dayName)
+    assertEquals(26, weekDays[0].dayNumber)
+    assertEquals("Oct", weekDays[0].monthName)
+
+    assertEquals("Tue", weekDays[1].dayName)
+    assertEquals(27, weekDays[1].dayNumber)
+
+    assertEquals("Wed", weekDays[2].dayName)
+    assertEquals(28, weekDays[2].dayNumber)
+
+    assertEquals("Thu", weekDays[3].dayName)
+    assertEquals(29, weekDays[3].dayNumber)
+
+    assertEquals("Fri", weekDays[4].dayName)
+    assertEquals(30, weekDays[4].dayNumber)
+
+    assertEquals("Sat", weekDays[5].dayName)
+    assertEquals(31, weekDays[5].dayNumber)
+    assertEquals("Oct", weekDays[5].monthName)
+
+    assertEquals("Sun", weekDays[6].dayName)
+    assertEquals(1, weekDays[6].dayNumber)
+    assertEquals("Nov", weekDays[6].monthName)
+
+    val label = com.example.data.util.CalendarUtil.getWeekHeaderLabel(weekDays)
+    assertEquals("Oct – Nov 2026", label)
+  }
+
+  @Test
+  fun `TEST AH - Monday Nov 2 2026 calendar calculates Mon Nov 2 to Sun Nov 8 with single month label`() {
+    val refCal = java.util.Calendar.getInstance().apply {
+      set(2026, java.util.Calendar.NOVEMBER, 2, 9, 0, 0) // Monday Nov 2, 2026
+    }
+    val weekDays = com.example.data.util.CalendarUtil.getWeekDays(refCal)
+    assertEquals(7, weekDays.size)
+
+    assertEquals("Mon", weekDays[0].dayName)
+    assertEquals(2, weekDays[0].dayNumber)
+
+    assertEquals("Sun", weekDays[6].dayName)
+    assertEquals(8, weekDays[6].dayNumber)
+
+    val label = com.example.data.util.CalendarUtil.getWeekHeaderLabel(weekDays)
+    assertEquals("November 2026", label)
+  }
+
+  @Test
+  fun `TEST AI - Year-end calendar rollover December 2026 to January 2027`() {
+    val refCal = java.util.Calendar.getInstance().apply {
+      set(2026, java.util.Calendar.DECEMBER, 31, 23, 59, 0) // Thursday Dec 31, 2026
+    }
+    val weekDays = com.example.data.util.CalendarUtil.getWeekDays(refCal)
+    assertEquals(7, weekDays.size)
+
+    assertEquals("Mon", weekDays[0].dayName)
+    assertEquals(28, weekDays[0].dayNumber)
+    assertEquals("Dec", weekDays[0].monthName)
+    assertEquals(2026, weekDays[0].year)
+
+    assertEquals("Fri", weekDays[4].dayName)
+    assertEquals(1, weekDays[4].dayNumber)
+    assertEquals("Jan", weekDays[4].monthName)
+    assertEquals(2027, weekDays[4].year)
+
+    val label = com.example.data.util.CalendarUtil.getWeekHeaderLabel(weekDays)
+    assertEquals("Dec 2026 – Jan 2027", label)
+  }
+
+  @Test
+  fun `ImageUrlResolver converts Google Drive share URLs to direct streaming CDN endpoints`() {
+    val driveUrl = "https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/view?usp=sharing"
+    val directUrl = com.example.ui.components.ImageUrlResolver.resolveDirectImageUrl(driveUrl)
+    assertEquals("https://lh3.googleusercontent.com/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms", directUrl)
+
+    val driveUrlIdParam = "https://drive.google.com/open?id=12345ABCDE"
+    val directUrl2 = com.example.ui.components.ImageUrlResolver.resolveDirectImageUrl(driveUrlIdParam)
+    assertEquals("https://lh3.googleusercontent.com/d/12345ABCDE", directUrl2)
+  }
+
+  @Test
+  fun `ImageUrlResolver converts Dropbox share URLs to raw image stream`() {
+    val dropboxUrl = "https://www.dropbox.com/s/1234567890/xray.jpg?dl=0"
+    val directUrl = com.example.ui.components.ImageUrlResolver.resolveDirectImageUrl(dropboxUrl)
+    assertEquals("https://www.dropbox.com/s/1234567890/xray.jpg?raw=1", directUrl)
+  }
+
+  @Test
+  fun `ImageCompressor successfully compresses bitmap bytes to medium resolution Base64 data URI`() {
+    val bitmap = android.graphics.Bitmap.createBitmap(1200, 900, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+    canvas.drawColor(android.graphics.Color.BLUE)
+
+    val stream = java.io.ByteArrayOutputStream()
+    bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, stream)
+    val rawBytes = stream.toByteArray()
+
+    val result = com.example.data.util.ImageCompressor.compressBytesToMediumDataUri(rawBytes, maxDimension = 600, quality = 75)
+    org.junit.Assert.assertTrue(result.isSuccess)
+    val dataUri = result.getOrNull()
+    org.junit.Assert.assertNotNull(dataUri)
+    org.junit.Assert.assertTrue(dataUri!!.startsWith("data:image/jpeg;base64,"))
+  }
 }
 
 

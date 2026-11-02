@@ -601,8 +601,8 @@ fun QuestionReviewCard(
               .padding(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally
           ) {
-            AsyncImage(
-              model = question.imageUrl,
+            com.example.ui.components.QuestionDiagramImage(
+              imageUrl = question.imageUrl,
               contentDescription = "Question illustration",
               modifier = Modifier
                 .fillMaxWidth()
