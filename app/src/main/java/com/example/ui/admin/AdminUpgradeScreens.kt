@@ -1059,8 +1059,31 @@ fun AdminScoreExportView(
     matchLevel && matchCourse && matchSession
   }
 
-  val totalCandidates = filteredAttempts.size
-  val passedCount = filteredAttempts.count {
+  // Strict UI Deduplication: Guarantee exactly ONE result per user per course per session across all admins
+  val uniqueFilteredAttempts = remember(filteredAttempts, studentMap) {
+    filteredAttempts
+      .groupBy { att ->
+        val meta = try {
+          if (att.answersJson.startsWith("{")) JSONObject(att.answersJson).optJSONObject("_meta") else null
+        } catch (_: Exception) { null }
+        val email = meta?.optString("student_email")?.takeIf { it.isNotBlank() }
+          ?: studentMap[att.userId]?.email
+          ?: "user_${att.userId}"
+        val courseCode = LevelClassifier.extractCourseCode(att.courseTitle)
+          ?: LevelClassifier.extractCourseCode(att.examTitle)
+          ?: att.courseTitle.trim()
+        val session = meta?.optString("session_id")?.takeIf { it.isNotBlank() } ?: "Session 1"
+        "${email.lowercase()}_${courseCode.uppercase()}_${session.uppercase()}"
+      }
+      .values
+      .map { group ->
+        group.maxByOrNull { it.timestamp } ?: group.first()
+      }
+      .sortedByDescending { it.timestamp }
+  }
+
+  val totalCandidates = uniqueFilteredAttempts.size
+  val passedCount = uniqueFilteredAttempts.count {
     val total = if (it.totalQuestions > 0) it.totalQuestions else 15
     val raw = if (it.score > total) (it.score * total) / 100 else it.score
     val pct = if (total > 0) (raw * 100) / total else 0
@@ -1109,9 +1132,9 @@ fun AdminScoreExportView(
   if (showBatchDeleteConfirm) {
     AlertDialog(
       onDismissRequest = { if (!isDeleting) showBatchDeleteConfirm = false },
-      title = { Text("Delete Filtered Submissions (${filteredAttempts.size})?") },
+      title = { Text("Delete Filtered Submissions (${uniqueFilteredAttempts.size})?") },
       text = {
-        Text("Are you sure you want to delete all ${filteredAttempts.size} submission(s) currently matching:\n\n• Level: $effectiveLevelFilter\n• Course: $selectedCourseFilter\n• Session: $selectedSessionFilter\n\nThis will permanently remove these records from both local Room storage and Supabase cloud database.")
+        Text("Are you sure you want to delete all ${uniqueFilteredAttempts.size} candidate submission(s) currently matching:\n\n• Level: $effectiveLevelFilter\n• Course: $selectedCourseFilter\n• Session: $selectedSessionFilter\n\nThis will permanently remove these records from both local Room storage and Supabase cloud database.")
       },
       confirmButton = {
         Button(
@@ -1350,7 +1373,7 @@ fun AdminScoreExportView(
 
           val sessionName = if (selectedSessionFilter != "All Sessions") selectedSessionFilter else "Departmental Session"
 
-          val feedbackMsg = if (filteredAttempts.isNotEmpty()) {
+          val feedbackMsg = if (uniqueFilteredAttempts.isNotEmpty()) {
             "Generating Official CBT Score Sheet for $courseCode ($sessionName)..."
           } else {
             "Generating Candidate Roster for $courseCode ($sessionName)..."
@@ -1370,7 +1393,7 @@ fun AdminScoreExportView(
             courseTitle = courseTitle,
             sessionName = sessionName,
             deadlineStr = if (effectiveLevelFilter != "All Levels") "Academic Level: $effectiveLevelFilter" else "",
-            attempts = filteredAttempts,
+            attempts = uniqueFilteredAttempts,
             studentsMap = targetStudentsMap
           )
 
@@ -1412,7 +1435,7 @@ fun AdminScoreExportView(
         Text("Share", style = MaterialTheme.typography.labelMedium)
       }
 
-      if (filteredAttempts.isNotEmpty()) {
+      if (uniqueFilteredAttempts.isNotEmpty()) {
         IconButton(
           onClick = { showBatchDeleteConfirm = true },
           modifier = Modifier.height(46.dp)
@@ -1424,7 +1447,7 @@ fun AdminScoreExportView(
 
     Spacer(modifier = Modifier.height(14.dp))
 
-    if (filteredAttempts.isEmpty()) {
+    if (uniqueFilteredAttempts.isEmpty()) {
       Box(
         modifier = Modifier.fillMaxSize().padding(24.dp),
         contentAlignment = Alignment.Center
@@ -1467,7 +1490,7 @@ fun AdminScoreExportView(
         modifier = Modifier.fillMaxSize(),
         verticalArrangement = Arrangement.spacedBy(10.dp)
       ) {
-        items(filteredAttempts) { att ->
+        items(uniqueFilteredAttempts) { att ->
           var candidateName = ""
           var candidateEmail = ""
           var candidateLevel = ""

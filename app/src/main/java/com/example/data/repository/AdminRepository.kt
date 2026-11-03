@@ -183,6 +183,7 @@ class AdminRepository(
       try {
         if (!attempt.remoteId.isNullOrBlank()) {
           supabaseClient?.restDelete("exam_attempts?id=eq.${attempt.remoteId}")
+          supabaseClient?.restDelete("app_config?key=eq.score_attempt_${attempt.remoteId}")
         }
       } catch (e: Exception) {
         Log.w(tag, "Notice deleting remote attempt from Supabase: ${e.message}")
@@ -202,6 +203,7 @@ class AdminRepository(
           try {
             if (!att.remoteId.isNullOrBlank()) {
               supabaseClient?.restDelete("exam_attempts?id=eq.${att.remoteId}")
+              supabaseClient?.restDelete("app_config?key=eq.score_attempt_${att.remoteId}")
             }
           } catch (_: Exception) {}
         }

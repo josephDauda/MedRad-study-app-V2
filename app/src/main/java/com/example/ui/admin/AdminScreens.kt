@@ -796,6 +796,8 @@ fun AdminQuestionsView(
 
   var selectedLevelFilter by remember { mutableStateOf("All") }
   val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
+  var selectedCourseFilter by remember { mutableStateOf("All Courses") }
+  var searchQuery by remember { mutableStateOf("") }
 
   val baseQuestions = remember(questions, isPrimary, secondaryAdminLevel) {
     if (!isPrimary && secondaryAdminLevel != null && secondaryAdminLevel != "All Levels") {
@@ -808,8 +810,15 @@ fun AdminQuestionsView(
     }
   }
 
-  val displayQuestions = remember(baseQuestions, selectedLevelFilter, isPrimary) {
-    if (isPrimary && selectedLevelFilter != "All") {
+  val availableCourseCodes = remember(baseQuestions, courses) {
+    val courseIdsInQuestions = baseQuestions.map { it.courseId }.toSet()
+    val matchingCourses = courses.filter { it.id in courseIdsInQuestions }
+    val codes = matchingCourses.map { it.code }.distinct().sorted()
+    listOf("All Courses") + codes
+  }
+
+  val displayQuestions = remember(baseQuestions, selectedLevelFilter, selectedCourseFilter, searchQuery, isPrimary) {
+    var list = if (isPrimary && selectedLevelFilter != "All") {
       baseQuestions.filter { q ->
         val courseCode = courses.find { it.id == q.courseId }?.code
         LevelClassifier.matchesLevel(selectedLevelFilter, courseCode)
@@ -817,6 +826,24 @@ fun AdminQuestionsView(
     } else {
       baseQuestions
     }
+
+    if (selectedCourseFilter != "All Courses") {
+      list = list.filter { q ->
+        val cCode = courses.find { it.id == q.courseId }?.code ?: ""
+        cCode.equals(selectedCourseFilter, ignoreCase = true)
+      }
+    }
+
+    if (searchQuery.isNotBlank()) {
+      list = list.filter { q ->
+        q.questionText.contains(searchQuery, ignoreCase = true) ||
+        q.optionA.contains(searchQuery, ignoreCase = true) ||
+        q.optionB.contains(searchQuery, ignoreCase = true) ||
+        q.optionC.contains(searchQuery, ignoreCase = true) ||
+        q.optionD.contains(searchQuery, ignoreCase = true)
+      }
+    }
+    list
   }
 
   if (showClearConfirm) {
@@ -845,28 +872,32 @@ fun AdminQuestionsView(
 
   Column(modifier = Modifier.fillMaxSize()) {
     Spacer(modifier = Modifier.height(12.dp))
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-      Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+      Column(modifier = Modifier.fillMaxWidth()) {
         Text(
           text = if (isPrimary) "Question Bank (${displayQuestions.size} of ${questions.size})" else "Question Bank: $secondaryAdminLevel (${displayQuestions.size})",
           style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
           color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-          text = if (isPrimary) "Alpha Admin Oversight — All academic levels" else "Secondary Admin: Level $secondaryAdminLevel",
+          text = (if (isPrimary) "Alpha Admin Oversight — All academic levels" else "Secondary Admin: Level $secondaryAdminLevel") +
+              if (selectedCourseFilter != "All Courses") " • Filtered by $selectedCourseFilter" else "",
           style = MaterialTheme.typography.labelSmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
       }
-      Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+      ) {
         if (displayQuestions.isNotEmpty() && isPrimary) {
           OutlinedButton(
             onClick = { showClearConfirm = true },
-            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 6.dp),
+            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
             shape = RoundedCornerShape(8.dp)
           ) {
             Icon(Icons.Default.Delete, contentDescription = null, tint = ErrorRed, modifier = Modifier.size(16.dp))
@@ -874,22 +905,45 @@ fun AdminQuestionsView(
             Text("Clear All", color = ErrorRed, maxLines = 1)
           }
         }
+        Spacer(modifier = Modifier.weight(1f))
         Button(
           onClick = onAddQuestion,
           colors = ButtonDefaults.buttonColors(
             containerColor = MaterialTheme.colorScheme.primary,
             contentColor = MaterialTheme.colorScheme.onPrimary
           ),
+          contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
           shape = RoundedCornerShape(8.dp)
         ) {
           Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
           Spacer(modifier = Modifier.width(4.dp))
-          Text("Create Question")
+          Text("Create Question", maxLines = 1)
         }
       }
     }
 
-    Spacer(modifier = Modifier.height(10.dp))
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // Search bar
+    OutlinedTextField(
+      value = searchQuery,
+      onValueChange = { searchQuery = it },
+      modifier = Modifier.fillMaxWidth(),
+      placeholder = { Text("Search questions, options, topics...", style = MaterialTheme.typography.bodySmall) },
+      leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+      trailingIcon = {
+        if (searchQuery.isNotBlank()) {
+          IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+          }
+        }
+      },
+      singleLine = true,
+      shape = RoundedCornerShape(10.dp),
+      textStyle = MaterialTheme.typography.bodyMedium
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
 
     if (isPrimary) {
       LazyRow(
@@ -898,18 +952,32 @@ fun AdminQuestionsView(
       ) {
         items(levelOptions) { lvl ->
           val isSelected = selectedLevelFilter == lvl
-          Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.clickable { selectedLevelFilter = lvl }
-          ) {
-            Text(
-              text = lvl,
-              style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal),
-              color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-            )
-          }
+          FilterChip(
+            selected = isSelected,
+            onClick = {
+              selectedLevelFilter = lvl
+              selectedCourseFilter = "All Courses"
+            },
+            label = { Text(lvl, style = MaterialTheme.typography.labelSmall) }
+          )
+        }
+      }
+      Spacer(modifier = Modifier.height(6.dp))
+    }
+
+    // Course filter chips for questions
+    if (availableCourseCodes.size > 1) {
+      LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        items(availableCourseCodes) { cCode ->
+          val isSelected = selectedCourseFilter == cCode
+          FilterChip(
+            selected = isSelected,
+            onClick = { selectedCourseFilter = cCode },
+            label = { Text(cCode, style = MaterialTheme.typography.labelSmall) }
+          )
         }
       }
       Spacer(modifier = Modifier.height(8.dp))
@@ -1080,25 +1148,29 @@ fun AdminExamsView(
       }
       Spacer(modifier = Modifier.height(10.dp))
     }
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
       Text(
         text = if (isPrimary) "Mock Examination Builder (${displayExams.size})" else "Mock Exam Builder: $secondaryAdminLevel (${displayExams.size})",
         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-        color = MaterialTheme.colorScheme.onSurface,
-        modifier = Modifier.weight(1f).padding(end = 8.dp)
+        color = MaterialTheme.colorScheme.onSurface
       )
-      Button(
-        onClick = onAddExam,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(8.dp)
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-        Spacer(modifier = Modifier.width(4.dp))
-        Text("Build Exam", maxLines = 1)
+        Button(
+          onClick = onAddExam,
+          contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+          shape = RoundedCornerShape(8.dp)
+        ) {
+          Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+          Spacer(modifier = Modifier.width(4.dp))
+          Text("Build Exam", maxLines = 1)
+        }
       }
     }
 
@@ -1156,6 +1228,8 @@ fun AdminMaterialsView(
 
   var selectedLevelFilter by remember { mutableStateOf("All") }
   val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
+  var selectedCourseFilter by remember { mutableStateOf("All Courses") }
+  var searchQuery by remember { mutableStateOf("") }
 
   val baseMaterials = remember(materials, isPrimary, secondaryAdminLevel) {
     if (!isPrimary && secondaryAdminLevel != null && secondaryAdminLevel != "All Levels") {
@@ -1168,8 +1242,15 @@ fun AdminMaterialsView(
     }
   }
 
-  val displayMaterials = remember(baseMaterials, selectedLevelFilter, isPrimary) {
-    if (isPrimary && selectedLevelFilter != "All") {
+  val availableCourseCodes = remember(baseMaterials, courses) {
+    val courseIdsInMaterials = baseMaterials.map { it.courseId }.toSet()
+    val matchingCourses = courses.filter { it.id in courseIdsInMaterials }
+    val codes = matchingCourses.map { it.code }.distinct().sorted()
+    listOf("All Courses") + codes
+  }
+
+  val displayMaterials = remember(baseMaterials, selectedLevelFilter, selectedCourseFilter, searchQuery, isPrimary) {
+    var list = if (isPrimary && selectedLevelFilter != "All") {
       baseMaterials.filter { mat ->
         val courseCode = courses.find { it.id == mat.courseId }?.code
         LevelClassifier.matchesLevel(selectedLevelFilter, courseCode)
@@ -1177,39 +1258,86 @@ fun AdminMaterialsView(
     } else {
       baseMaterials
     }
+
+    if (selectedCourseFilter != "All Courses") {
+      list = list.filter { mat ->
+        val cCode = courses.find { it.id == mat.courseId }?.code ?: ""
+        cCode.equals(selectedCourseFilter, ignoreCase = true)
+      }
+    }
+
+    if (searchQuery.isNotBlank()) {
+      list = list.filter { mat ->
+        mat.title.contains(searchQuery, ignoreCase = true) ||
+        mat.contentType.contains(searchQuery, ignoreCase = true) ||
+        mat.contentBody.contains(searchQuery, ignoreCase = true)
+      }
+    }
+    list
   }
 
   Column(modifier = Modifier.fillMaxSize()) {
     Spacer(modifier = Modifier.height(12.dp))
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-      Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+      Column(modifier = Modifier.fillMaxWidth()) {
         Text(
           text = if (isPrimary) "Study Materials & Notes (${displayMaterials.size} of ${materials.size})" else "Study Materials: $secondaryAdminLevel (${displayMaterials.size})",
           style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
           color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-          text = if (isPrimary) "Alpha Admin Oversight — All levels" else "Secondary Admin: Level $secondaryAdminLevel",
+          text = (if (isPrimary) "Alpha Admin Oversight — All levels" else "Secondary Admin: Level $secondaryAdminLevel") +
+              if (selectedCourseFilter != "All Courses") " • Filtered by $selectedCourseFilter" else "",
           style = MaterialTheme.typography.labelSmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
       }
-      Button(
-        onClick = onAddMaterial,
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(8.dp)
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-        Spacer(modifier = Modifier.width(4.dp))
-        Text("Upload Note", maxLines = 1)
+        Button(
+          onClick = onAddMaterial,
+          colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary
+          ),
+          contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+          shape = RoundedCornerShape(8.dp)
+        ) {
+          Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+          Spacer(modifier = Modifier.width(4.dp))
+          Text("Upload Note", maxLines = 1)
+        }
       }
     }
 
-    Spacer(modifier = Modifier.height(10.dp))
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // Search bar
+    OutlinedTextField(
+      value = searchQuery,
+      onValueChange = { searchQuery = it },
+      modifier = Modifier.fillMaxWidth(),
+      placeholder = { Text("Search lecture notes, topics, protocols...", style = MaterialTheme.typography.bodySmall) },
+      leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+      trailingIcon = {
+        if (searchQuery.isNotBlank()) {
+          IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+          }
+        }
+      },
+      singleLine = true,
+      shape = RoundedCornerShape(10.dp),
+      textStyle = MaterialTheme.typography.bodyMedium
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
 
     if (isPrimary) {
       LazyRow(
@@ -1218,18 +1346,32 @@ fun AdminMaterialsView(
       ) {
         items(levelOptions) { lvl ->
           val isSelected = selectedLevelFilter == lvl
-          Surface(
-            shape = RoundedCornerShape(8.dp),
-            color = if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-            modifier = Modifier.clickable { selectedLevelFilter = lvl }
-          ) {
-            Text(
-              text = lvl,
-              style = MaterialTheme.typography.labelSmall.copy(fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal),
-              color = if (isSelected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
-              modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-            )
-          }
+          FilterChip(
+            selected = isSelected,
+            onClick = {
+              selectedLevelFilter = lvl
+              selectedCourseFilter = "All Courses"
+            },
+            label = { Text(lvl, style = MaterialTheme.typography.labelSmall) }
+          )
+        }
+      }
+      Spacer(modifier = Modifier.height(6.dp))
+    }
+
+    // Course filter chips for study materials
+    if (availableCourseCodes.size > 1) {
+      LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        items(availableCourseCodes) { cCode ->
+          val isSelected = selectedCourseFilter == cCode
+          FilterChip(
+            selected = isSelected,
+            onClick = { selectedCourseFilter = cCode },
+            label = { Text(cCode, style = MaterialTheme.typography.labelSmall) }
+          )
         }
       }
       Spacer(modifier = Modifier.height(8.dp))
@@ -1306,53 +1448,160 @@ fun AdminLibrariesView(
       (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && (currentUser.level.isBlank() || currentUser.level.equals("Staff", ignoreCase = true)))
   val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
-  val displayLibraries = remember(libraries, isPrimary, secondaryAdminLevel, courses) {
-    if (!isPrimary && secondaryAdminLevel != null && secondaryAdminLevel != "All Levels") {
+  var selectedLevelFilter by remember { mutableStateOf(if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else "All") }
+  val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
+  var selectedCourseFilter by remember { mutableStateOf("All Courses") }
+  var searchQuery by remember { mutableStateOf("") }
+
+  val availableCourseCodes = remember(courses, secondaryAdminLevel, isPrimary, selectedLevelFilter) {
+    val targetLvl = if (!isPrimary) secondaryAdminLevel else if (selectedLevelFilter != "All") selectedLevelFilter else null
+    val filtered = if (targetLvl != null && targetLvl != "All Levels") {
+      courses.filter { LevelClassifier.matchesLevel(targetLvl, it.code) || LevelClassifier.matchesLevel(targetLvl, it.level) }
+    } else {
+      courses
+    }
+    listOf("All Courses") + filtered.map { it.code }.distinct().sorted()
+  }
+
+  val displayLibraries = remember(libraries, isPrimary, secondaryAdminLevel, courses, selectedLevelFilter, selectedCourseFilter, searchQuery) {
+    val effectiveLevel = if (!isPrimary) secondaryAdminLevel else if (selectedLevelFilter != "All") selectedLevelFilter else null
+    var list = if (effectiveLevel != null && effectiveLevel != "All Levels") {
       libraries.filter { lib ->
         val matchedCourse = courses.find { it.id == lib.courseId }
-        val courseCode = matchedCourse?.code ?: lib.courseCode
-        LevelClassifier.matchesLevel(secondaryAdminLevel, courseCode) || (matchedCourse != null && LevelClassifier.matchesLevel(secondaryAdminLevel, matchedCourse.level))
+        val courseCode = lib.courseCode.ifBlank { matchedCourse?.code ?: "" }
+        val codeLevel = LevelClassifier.getLevelFromCourseCode(courseCode)
+        if (codeLevel != null) {
+          codeLevel == effectiveLevel
+        } else if (matchedCourse != null) {
+          LevelClassifier.matchesLevel(effectiveLevel, matchedCourse.level)
+        } else {
+          LevelClassifier.matchesLevel(effectiveLevel, lib.courseCode)
+        }
       }
     } else {
       libraries
     }
+
+    if (selectedCourseFilter != "All Courses") {
+      list = list.filter { lib ->
+        val matchedCourse = courses.find { it.id == lib.courseId }
+        val code = lib.courseCode.ifBlank { matchedCourse?.code ?: "" }
+        code.equals(selectedCourseFilter, ignoreCase = true)
+      }
+    }
+
+    if (searchQuery.isNotBlank()) {
+      list = list.filter { lib ->
+        lib.name.contains(searchQuery, ignoreCase = true) ||
+        lib.description.contains(searchQuery, ignoreCase = true) ||
+        lib.courseCode.contains(searchQuery, ignoreCase = true)
+      }
+    }
+    list
   }
 
   Column(modifier = Modifier.fillMaxSize()) {
     Spacer(modifier = Modifier.height(12.dp))
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-      Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+      Column(modifier = Modifier.fillMaxWidth()) {
         Text(
           text = if (isPrimary) "Course Libraries & Drive Resources (${displayLibraries.size})" else "Drive Libraries: $secondaryAdminLevel (${displayLibraries.size})",
           style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
           color = MaterialTheme.colorScheme.onSurface
         )
         Text(
-          text = "${displayLibraries.size} external Google Drive links & archives",
+          text = "${displayLibraries.size} external Google Drive links & archives" + if (selectedCourseFilter != "All Courses") " • Filtered by $selectedCourseFilter" else "",
           style = MaterialTheme.typography.labelSmall,
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
       }
-      Button(
-        onClick = onAddLibrary,
-        colors = ButtonDefaults.buttonColors(
-          containerColor = MaterialTheme.colorScheme.primary,
-          contentColor = MaterialTheme.colorScheme.onPrimary
-        ),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(8.dp)
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-        Spacer(modifier = Modifier.width(4.dp))
-        Text("Add Library", maxLines = 1)
+        Button(
+          onClick = onAddLibrary,
+          colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary
+          ),
+          contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+          shape = RoundedCornerShape(8.dp)
+        ) {
+          Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+          Spacer(modifier = Modifier.width(4.dp))
+          Text("Add Library", maxLines = 1)
+        }
       }
     }
 
-    Spacer(modifier = Modifier.height(12.dp))
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // Search bar
+    OutlinedTextField(
+      value = searchQuery,
+      onValueChange = { searchQuery = it },
+      modifier = Modifier.fillMaxWidth(),
+      placeholder = { Text("Search libraries, atlases, links...", style = MaterialTheme.typography.bodySmall) },
+      leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+      trailingIcon = {
+        if (searchQuery.isNotBlank()) {
+          IconButton(onClick = { searchQuery = "" }, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+          }
+        }
+      },
+      singleLine = true,
+      shape = RoundedCornerShape(10.dp),
+      textStyle = MaterialTheme.typography.bodyMedium
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // Level filter for Alpha admin
+    if (isPrimary) {
+      LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        items(levelOptions) { lvl ->
+          val isSelected = selectedLevelFilter == lvl
+          FilterChip(
+            selected = isSelected,
+            onClick = {
+              selectedLevelFilter = lvl
+              selectedCourseFilter = "All Courses"
+            },
+            label = { Text(lvl, style = MaterialTheme.typography.labelSmall) }
+          )
+        }
+      }
+      Spacer(modifier = Modifier.height(6.dp))
+    }
+
+    // Course filter chips
+    if (availableCourseCodes.size > 1) {
+      LazyRow(
+        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        modifier = Modifier.fillMaxWidth()
+      ) {
+        items(availableCourseCodes) { cCode ->
+          val isSelected = selectedCourseFilter == cCode
+          FilterChip(
+            selected = isSelected,
+            onClick = { selectedCourseFilter = cCode },
+            label = { Text(cCode, style = MaterialTheme.typography.labelSmall) }
+          )
+        }
+      }
+      Spacer(modifier = Modifier.height(8.dp))
+    }
+
+    Spacer(modifier = Modifier.height(4.dp))
 
     LazyColumn(
       modifier = Modifier.fillMaxSize(),
@@ -1748,12 +1997,11 @@ fun AdminSyllabusView(
 
   Column(modifier = Modifier.fillMaxSize()) {
     Spacer(modifier = Modifier.height(12.dp))
-    Row(
-      modifier = Modifier.fillMaxWidth(),
-      horizontalArrangement = Arrangement.SpaceBetween,
-      verticalAlignment = Alignment.CenterVertically
+    Column(
+      modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+      verticalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-      Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+      Column(modifier = Modifier.fillMaxWidth()) {
         Text(
           text = if (isPrimary) "Curriculum & Syllabus Management" else "Curriculum & Syllabus ($secondaryAdminLevel)",
           style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
@@ -1765,18 +2013,24 @@ fun AdminSyllabusView(
           color = MaterialTheme.colorScheme.onSurfaceVariant
         )
       }
-      Button(
-        onClick = onAddTopic,
-        colors = ButtonDefaults.buttonColors(
-          containerColor = MaterialTheme.colorScheme.primary,
-          contentColor = MaterialTheme.colorScheme.onPrimary
-        ),
-        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-        shape = RoundedCornerShape(8.dp)
+      Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.End,
+        verticalAlignment = Alignment.CenterVertically
       ) {
-        Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
-        Spacer(modifier = Modifier.width(4.dp))
-        Text("Add Syllabus", maxLines = 1)
+        Button(
+          onClick = onAddTopic,
+          colors = ButtonDefaults.buttonColors(
+            containerColor = MaterialTheme.colorScheme.primary,
+            contentColor = MaterialTheme.colorScheme.onPrimary
+          ),
+          contentPadding = PaddingValues(horizontal = 14.dp, vertical = 6.dp),
+          shape = RoundedCornerShape(8.dp)
+        ) {
+          Icon(Icons.Default.Add, contentDescription = null, modifier = Modifier.size(16.dp))
+          Spacer(modifier = Modifier.width(4.dp))
+          Text("Add Syllabus", maxLines = 1)
+        }
       }
     }
 
@@ -2082,6 +2336,44 @@ fun AdminAcademicSetupView(
 
     Spacer(modifier = Modifier.height(16.dp))
 
+    var selectedLevelFilter by remember { mutableStateOf("All Levels") }
+    val levelOptions = listOf("All Levels", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level")
+    var courseSearchQuery by remember { mutableStateOf("") }
+    var courseToDelete by remember { mutableStateOf<CourseEntity?>(null) }
+
+    val filteredCourses = remember(courses, selectedLevelFilter, courseSearchQuery) {
+      courses.filter { c ->
+        val matchLevel = (selectedLevelFilter == "All Levels") || LevelClassifier.matchesLevel(selectedLevelFilter, c.code) || LevelClassifier.matchesLevel(selectedLevelFilter, c.level)
+        val matchQuery = courseSearchQuery.isBlank() || c.code.contains(courseSearchQuery, ignoreCase = true) || c.title.contains(courseSearchQuery, ignoreCase = true)
+        matchLevel && matchQuery
+      }.sortedWith(compareBy({ it.level }, { it.code }))
+    }
+
+    if (courseToDelete != null) {
+      AlertDialog(
+        onDismissRequest = { courseToDelete = null },
+        title = { Text("Delete Course & Database Data?", fontWeight = FontWeight.Bold) },
+        text = { Text("Are you sure you want to delete ${courseToDelete?.code} (${courseToDelete?.title})? This will permanently delete this course and cascade delete all its linked questions, study materials, and exams directly from the Supabase cloud database and device storage.") },
+        confirmButton = {
+          Button(
+            onClick = {
+              val c = courseToDelete
+              courseToDelete = null
+              if (c != null) onDeleteCourse(c)
+            },
+            colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
+          ) {
+            Text("Delete Course")
+          }
+        },
+        dismissButton = {
+          TextButton(onClick = { courseToDelete = null }) {
+            Text("Cancel")
+          }
+        }
+      )
+    }
+
     Card(
       modifier = Modifier.fillMaxWidth(),
       shape = RoundedCornerShape(12.dp),
@@ -2090,58 +2382,183 @@ fun AdminAcademicSetupView(
     ) {
       Column(modifier = Modifier.padding(16.dp)) {
         Text("Active Universities", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
-        Spacer(modifier = Modifier.height(6.dp))
-        Text("1. University of Maiduguri (UNIMAID) - Active", style = MaterialTheme.typography.bodySmall)
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(4.dp))
+        Text("• University of Maiduguri (UNIMAID) — Active Institution", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(modifier = Modifier.height(10.dp))
         Text("Active Faculties & Departments", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
-        Spacer(modifier = Modifier.height(6.dp))
-        Text("• College of Medical Sciences -> Medical Radiography", style = MaterialTheme.typography.bodySmall)
-        Spacer(modifier = Modifier.height(12.dp))
-        Text("Configured Courses (${courses.size})", style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold), color = MaterialTheme.colorScheme.onSurface)
-        var courseToDelete by remember { mutableStateOf<CourseEntity?>(null) }
+        Spacer(modifier = Modifier.height(4.dp))
+        Text("• College of Medical Sciences → Department of Medical Radiography", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+      }
+    }
 
-        if (courseToDelete != null) {
-          AlertDialog(
-            onDismissRequest = { courseToDelete = null },
-            title = { Text("Delete Course & Database Data?", fontWeight = FontWeight.Bold) },
-            text = { Text("Are you sure you want to delete ${courseToDelete?.code} (${courseToDelete?.title})? This will permanently delete this course and cascade delete all its linked questions, study materials, and exams directly from the Supabase cloud database and device storage.") },
-            confirmButton = {
-              Button(
-                onClick = {
-                  val c = courseToDelete
-                  courseToDelete = null
-                  if (c != null) onDeleteCourse(c)
-                },
-                colors = ButtonDefaults.buttonColors(containerColor = ErrorRed)
-              ) {
-                Text("Delete Course")
-              }
-            },
-            dismissButton = {
-              TextButton(onClick = { courseToDelete = null }) {
-                Text("Cancel")
-              }
-            }
+    Spacer(modifier = Modifier.height(16.dp))
+
+    Row(
+      modifier = Modifier.fillMaxWidth(),
+      horizontalArrangement = Arrangement.SpaceBetween,
+      verticalAlignment = Alignment.CenterVertically
+    ) {
+      Text(
+        text = "Configured Courses (${filteredCourses.size} of ${courses.size})",
+        style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+        color = MaterialTheme.colorScheme.onSurface
+      )
+      if (selectedLevelFilter != "All Levels") {
+        Surface(
+          shape = RoundedCornerShape(12.dp),
+          color = MaterialTheme.colorScheme.primaryContainer
+        ) {
+          Text(
+            text = selectedLevelFilter,
+            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onPrimaryContainer,
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
           )
         }
+      }
+    }
 
-        courses.forEach { c ->
-          Row(
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // Search bar for courses
+    OutlinedTextField(
+      value = courseSearchQuery,
+      onValueChange = { courseSearchQuery = it },
+      modifier = Modifier.fillMaxWidth(),
+      placeholder = { Text("Search course by code or title (e.g. ANA 201, RAD 101)...", style = MaterialTheme.typography.bodySmall) },
+      leadingIcon = { Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(18.dp)) },
+      trailingIcon = {
+        if (courseSearchQuery.isNotBlank()) {
+          IconButton(onClick = { courseSearchQuery = "" }, modifier = Modifier.size(24.dp)) {
+            Icon(Icons.Default.Close, contentDescription = "Clear", modifier = Modifier.size(16.dp))
+          }
+        }
+      },
+      singleLine = true,
+      shape = RoundedCornerShape(10.dp),
+      textStyle = MaterialTheme.typography.bodyMedium
+    )
+
+    Spacer(modifier = Modifier.height(8.dp))
+
+    // Level filter tabs
+    LazyRow(
+      horizontalArrangement = Arrangement.spacedBy(6.dp),
+      modifier = Modifier.fillMaxWidth()
+    ) {
+      items(levelOptions) { lvl ->
+        val isSelected = selectedLevelFilter == lvl
+        FilterChip(
+          selected = isSelected,
+          onClick = { selectedLevelFilter = lvl },
+          label = { Text(lvl, style = MaterialTheme.typography.labelSmall) }
+        )
+      }
+    }
+
+    Spacer(modifier = Modifier.height(10.dp))
+
+    if (filteredCourses.isEmpty()) {
+      Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(12.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+      ) {
+        Column(
+          modifier = Modifier.fillMaxWidth().padding(24.dp),
+          horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+          Text(
+            text = "No courses match the selected filter ($selectedLevelFilter)",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+          )
+        }
+      }
+    } else {
+      Column(
+        modifier = Modifier.fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(8.dp)
+      ) {
+        filteredCourses.forEach { c ->
+          Card(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(10.dp),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+            border = BorderStroke(1.dp, BorderSubtle)
           ) {
-            Column(modifier = Modifier.weight(1f)) {
-              Text("• ${c.code}: ${c.title}", style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold))
-              Text("${c.level} • ${c.semester}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-            IconButton(
-              onClick = { courseToDelete = c },
-              modifier = Modifier.size(28.dp)
+            Row(
+              modifier = Modifier
+                .fillMaxWidth()
+                .padding(12.dp),
+              horizontalArrangement = Arrangement.SpaceBetween,
+              verticalAlignment = Alignment.CenterVertically
             ) {
-              Icon(Icons.Default.Delete, contentDescription = "Delete course", tint = ErrorRed, modifier = Modifier.size(16.dp))
+              Column(modifier = Modifier.weight(1f)) {
+                Row(
+                  verticalAlignment = Alignment.CenterVertically,
+                  horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                  Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer
+                  ) {
+                    Text(
+                      text = c.code,
+                      style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                      color = MaterialTheme.colorScheme.onPrimaryContainer,
+                      modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                  }
+                  Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                  ) {
+                    Text(
+                      text = c.level,
+                      style = MaterialTheme.typography.labelSmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                  }
+                  Surface(
+                    shape = RoundedCornerShape(4.dp),
+                    color = MaterialTheme.colorScheme.surfaceVariant
+                  ) {
+                    Text(
+                      text = c.semester,
+                      style = MaterialTheme.typography.labelSmall,
+                      color = MaterialTheme.colorScheme.onSurfaceVariant,
+                      modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                    )
+                  }
+                }
+
+                Spacer(modifier = Modifier.height(6.dp))
+
+                Text(
+                  text = c.title,
+                  style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.SemiBold),
+                  color = MaterialTheme.colorScheme.onSurface
+                )
+
+                if (c.description.isNotBlank()) {
+                  Spacer(modifier = Modifier.height(2.dp))
+                  Text(
+                    text = c.description,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2
+                  )
+                }
+              }
+
+              IconButton(
+                onClick = { courseToDelete = c },
+                modifier = Modifier.size(32.dp)
+              ) {
+                Icon(Icons.Default.Delete, contentDescription = "Delete course", tint = ErrorRed, modifier = Modifier.size(18.dp))
+              }
             }
           }
         }

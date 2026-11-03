@@ -136,6 +136,7 @@ DROP POLICY IF EXISTS "Allow Write App Config" ON app_config;
 DROP POLICY IF EXISTS "Allow Insert Student Feedback" ON student_feedback;
 DROP POLICY IF EXISTS "Public Read Profiles" ON profiles;
 DROP POLICY IF EXISTS "Allow Write Profiles" ON profiles;
+DROP POLICY IF EXISTS "Public Read Exam Attempts" ON exam_attempts;
 DROP POLICY IF EXISTS "Allow Insert Exam Attempts" ON exam_attempts;
 
 -- Read policies: Academic content is accessible to all students (anon and authenticated)
@@ -147,6 +148,7 @@ CREATE POLICY "Public Read Course Libraries" ON course_libraries FOR SELECT USIN
 CREATE POLICY "Public Read Announcements" ON announcements FOR SELECT USING (true);
 CREATE POLICY "Public Read App Config" ON app_config FOR SELECT USING (true);
 CREATE POLICY "Public Read Profiles" ON profiles FOR SELECT USING (true);
+CREATE POLICY "Public Read Exam Attempts" ON exam_attempts FOR SELECT USING (true);
 
 -- Write policies: Enable app updates and admin content publication
 CREATE POLICY "Allow Write Courses" ON courses FOR ALL USING (true) WITH CHECK (true);
@@ -168,5 +170,6 @@ ALTER PUBLICATION supabase_realtime ADD TABLE exams;
 ALTER PUBLICATION supabase_realtime ADD TABLE questions;
 ALTER PUBLICATION supabase_realtime ADD TABLE study_materials;
 ALTER PUBLICATION supabase_realtime ADD TABLE course_libraries;
+ALTER PUBLICATION supabase_realtime ADD TABLE exam_attempts;
 """.trimIndent()
 }

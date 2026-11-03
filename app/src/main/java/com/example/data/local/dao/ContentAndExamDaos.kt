@@ -131,6 +131,9 @@ interface ExamDao {
   @Query("SELECT * FROM exam_attempts WHERE userId = :userId ORDER BY timestamp DESC")
   suspend fun getAttemptsForUserList(userId: Long): List<ExamAttemptEntity>
 
+  @Query("SELECT * FROM exam_attempts WHERE remoteId IS NULL OR remoteId = '' ORDER BY timestamp DESC")
+  suspend fun getUnsyncedAttempts(): List<ExamAttemptEntity>
+
   @Query("SELECT COUNT(*) FROM exam_attempts")
   suspend fun getTotalAttemptsCount(): Int
 

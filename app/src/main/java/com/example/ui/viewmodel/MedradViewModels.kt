@@ -456,8 +456,9 @@ class CbtViewModel(
     viewModelScope.launch {
       _sessionState.value = CbtSessionState(isLoading = true)
 
-      // 1. Pull latest questions, exams and configurations from cloud so new admin questions appear immediately
+      // 1. Pull latest questions, exams and configurations from cloud and flush pending submissions
       try {
+        cloudSyncManager?.pushPendingExamAttempts()
         cloudSyncManager?.pullExams()
         cloudSyncManager?.pullQuestions(exam.courseId)
         cloudSyncManager?.pullAppConfig()
@@ -780,6 +781,13 @@ class CbtViewModel(
       )
 
       val attemptId = cbtRepository.submitExamAttempt(attempt)
+
+      // Background push ensuring Supabase receives the submission even if initial socket was busy
+      viewModelScope.launch {
+        try {
+          cloudSyncManager?.pushPendingExamAttempts()
+        } catch (_: Exception) {}
+      }
 
       _sessionState.value = state.copy(
         isSubmitted = true,
@@ -1156,8 +1164,8 @@ class AdminViewModel(
 
   fun syncAttemptsFromCloud(onDone: () -> Unit = {}) {
     viewModelScope.launch {
-      cloudSyncManager?.pullExamAttempts()
       cloudSyncManager?.pullProfiles()
+      cloudSyncManager?.pullExamAttempts()
       _stats.value = adminRepository.getDashboardStats()
       onDone()
     }
