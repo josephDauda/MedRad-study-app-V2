@@ -73,6 +73,8 @@ import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -152,10 +154,20 @@ fun MedradNavHost(
   val adminViewModel = remember { AdminViewModel(container.adminRepository, container.academicRepository, container.cloudSyncManager) }
 
   val currentUser by authViewModel.currentUser.collectAsState()
+  val isSessionChecked by authViewModel.isSessionChecked.collectAsState()
 
-  var currentRoute by remember { mutableStateOf(ScreenRoute.WELCOME) }
-  var currentAttemptId by remember { mutableLongStateOf(0L) }
-  val backStack = remember { mutableStateListOf<ScreenRoute>() }
+  var currentRoute by rememberSaveable { mutableStateOf(ScreenRoute.WELCOME) }
+  var currentAttemptId by rememberSaveable { mutableLongStateOf(0L) }
+  val backStack = rememberSaveable(
+    saver = Saver(
+      save = { it.map { route -> route.name } },
+      restore = { saved ->
+        mutableStateListOf<ScreenRoute>().apply {
+          addAll(saved.mapNotNull { name -> runCatching { ScreenRoute.valueOf(name) }.getOrNull() })
+        }
+      }
+    )
+  ) { mutableStateListOf<ScreenRoute>() }
   val focusManager = LocalFocusManager.current
 
   fun navigateTo(route: ScreenRoute) {
@@ -195,7 +207,8 @@ fun MedradNavHost(
   }
 
   // Check auth session safely in side-effect
-  LaunchedEffect(currentUser, currentRoute) {
+  LaunchedEffect(currentUser, isSessionChecked, currentRoute) {
+    if (!isSessionChecked) return@LaunchedEffect
     if (currentUser != null && (currentRoute == ScreenRoute.WELCOME || currentRoute == ScreenRoute.LOGIN || currentRoute == ScreenRoute.REGISTER)) {
       backStack.clear()
       currentRoute = ScreenRoute.DASHBOARD
@@ -304,7 +317,7 @@ fun MedradNavHost(
             adminViewModel = adminViewModel,
             onNavigateBack = { popBackStack() }
           )
-        } else {
+        } else if (isSessionChecked) {
           navigateTo(ScreenRoute.DASHBOARD)
         }
       }
@@ -401,6 +414,13 @@ fun MedradNavHost(
               }
             }
           )
+        } else if (!isSessionChecked) {
+          Box(
+            modifier = Modifier.fillMaxSize(),
+            contentAlignment = Alignment.Center
+          ) {
+            CircularProgressIndicator(color = MedicalTeal)
+          }
         }
       }
     }

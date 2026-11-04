@@ -16,6 +16,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
@@ -31,6 +32,11 @@ class AuthRepository(private val context: Context, private val database: AppData
 
   private val _currentUser = MutableStateFlow<UserEntity?>(null)
   val currentUser: Flow<UserEntity?> = _currentUser.asStateFlow()
+
+  private val _isSessionChecked = MutableStateFlow<Boolean>(_currentUser.value != null)
+  val isSessionChecked: StateFlow<Boolean> = _isSessionChecked.asStateFlow()
+
+  fun getCurrentUserSnapshot(): UserEntity? = _currentUser.value
 
   data class RemoteUserRecord(
     val email: String,
@@ -122,87 +128,91 @@ class AuthRepository(private val context: Context, private val database: AppData
 
   suspend fun checkExistingSession() {
     withContext(Dispatchers.IO) {
-      val savedUserId = prefs.getLong("logged_in_user_id", -1L)
-      if (savedUserId != -1L) {
-        val user = database.userDao().getUserById(savedUserId)
-        if (user != null) {
-          _currentUser.value = user
-          // Check if cloud session needs token refresh
-          if (supabaseClient.isSessionExpired()) {
-            val refreshRes = supabaseClient.authRefreshToken()
-            if (refreshRes.isFailure) {
-              Log.w(tag, "Supabase session refresh notice: ${refreshRes.exceptionOrNull()?.message}")
+      try {
+        val savedUserId = prefs.getLong("logged_in_user_id", -1L)
+        if (savedUserId != -1L) {
+          val user = database.userDao().getUserById(savedUserId)
+          if (user != null) {
+            _currentUser.value = user
+            // Check if cloud session needs token refresh
+            if (supabaseClient.isSessionExpired()) {
+              val refreshRes = supabaseClient.authRefreshToken()
+              if (refreshRes.isFailure) {
+                Log.w(tag, "Supabase session refresh notice: ${refreshRes.exceptionOrNull()?.message}")
+              }
             }
-          }
 
-          // Authoritative Database Validation:
-          val trimmedEmail = user.email.trim().lowercase()
-          if (trimmedEmail != "admin@medrad.edu.ng") {
-            try {
-              val remoteUser = fetchRemoteUser(trimmedEmail)
-              if (remoteUser == null) {
-                // Confirm if database is reachable before auto-signing out to prevent offline lockout
-                val ping = supabaseClient.restGet("app_config?select=key&limit=1")
-                if (ping.isSuccess) {
-                  // Never delete administrators from local cache
-                  if (user.role.equals("ADMIN", ignoreCase = true) || user.adminRole.equals("SECONDARY", ignoreCase = true)) {
-                    _currentUser.value = user
+            // Authoritative Database Validation:
+            val trimmedEmail = user.email.trim().lowercase()
+            if (trimmedEmail != "admin@medrad.edu.ng") {
+              try {
+                val remoteUser = fetchRemoteUser(trimmedEmail)
+                if (remoteUser == null) {
+                  // Confirm if database is reachable before auto-signing out to prevent offline lockout
+                  val ping = supabaseClient.restGet("app_config?select=key&limit=1")
+                  if (ping.isSuccess) {
+                    // Never delete administrators from local cache
+                    if (user.role.equals("ADMIN", ignoreCase = true) || user.adminRole.equals("SECONDARY", ignoreCase = true)) {
+                      _currentUser.value = user
+                      return@withContext
+                    }
+                    // User does not exist on database (or was deleted manually)
+                    Log.w(tag, "User $trimmedEmail was deleted or does not exist on database. Purging session & auto-signing out.")
+                    database.userDao().deleteUser(user)
+                    logout()
                     return@withContext
                   }
-                  // User does not exist on database (or was deleted manually)
-                  Log.w(tag, "User $trimmedEmail was deleted or does not exist on database. Purging session & auto-signing out.")
-                  database.userDao().deleteUser(user)
-                  logout()
-                  return@withContext
-                }
-              } else {
-                // Keep local user in sync with latest database profile (level, name, role)
-                val normalizedLevel = LevelClassifier.normalizeLevel(remoteUser.level)
-                val isExplicitAdmin = remoteUser.role.equals("ADMIN", ignoreCase = true) ||
-                    user.role.equals("ADMIN", ignoreCase = true) ||
-                    remoteUser.adminRole.equals("SECONDARY", ignoreCase = true) ||
-                    user.adminRole.equals("SECONDARY", ignoreCase = true)
-                val resolvedRole = if (isExplicitAdmin) "ADMIN" else remoteUser.role
-                val resolvedAdminRole = if (trimmedEmail == "admin@medrad.edu.ng") "PRIMARY"
-                    else if (remoteUser.adminRole.isNotBlank()) remoteUser.adminRole
-                    else if (user.adminRole.isNotBlank()) user.adminRole
-                    else if (resolvedRole == "ADMIN") "SECONDARY" else ""
-                val resolvedAssignedCourses = if (remoteUser.assignedCourses.isNotBlank()) remoteUser.assignedCourses
-                    else if (user.assignedCourses.isNotBlank()) user.assignedCourses
-                    else normalizedLevel
-                val resolvedPermissions = if (remoteUser.permissions.isNotBlank()) remoteUser.permissions
-                    else if (user.permissions.isNotBlank()) user.permissions
-                    else if (resolvedRole == "ADMIN") "materials,questions,announcements,libraries,exams" else ""
+                } else {
+                  // Keep local user in sync with latest database profile (level, name, role)
+                  val normalizedLevel = LevelClassifier.normalizeLevel(remoteUser.level)
+                  val isExplicitAdmin = remoteUser.role.equals("ADMIN", ignoreCase = true) ||
+                      user.role.equals("ADMIN", ignoreCase = true) ||
+                      remoteUser.adminRole.equals("SECONDARY", ignoreCase = true) ||
+                      user.adminRole.equals("SECONDARY", ignoreCase = true)
+                  val resolvedRole = if (isExplicitAdmin) "ADMIN" else remoteUser.role
+                  val resolvedAdminRole = if (trimmedEmail == "admin@medrad.edu.ng") "PRIMARY"
+                      else if (remoteUser.adminRole.isNotBlank()) remoteUser.adminRole
+                      else if (user.adminRole.isNotBlank()) user.adminRole
+                      else if (resolvedRole == "ADMIN") "SECONDARY" else ""
+                  val resolvedAssignedCourses = if (remoteUser.assignedCourses.isNotBlank()) remoteUser.assignedCourses
+                      else if (user.assignedCourses.isNotBlank()) user.assignedCourses
+                      else normalizedLevel
+                  val resolvedPermissions = if (remoteUser.permissions.isNotBlank()) remoteUser.permissions
+                      else if (user.permissions.isNotBlank()) user.permissions
+                      else if (resolvedRole == "ADMIN") "materials,questions,announcements,libraries,exams" else ""
 
-                val updated = user.copy(
-                  fullName = remoteUser.fullName.ifBlank { user.fullName },
-                  phoneNumber = remoteUser.phone.ifBlank { user.phoneNumber },
-                  department = remoteUser.department.ifBlank { user.department },
-                  faculty = remoteUser.faculty.ifBlank { user.faculty },
-                  level = normalizedLevel,
-                  role = resolvedRole,
-                  adminRole = resolvedAdminRole,
-                  assignedCourses = resolvedAssignedCourses,
-                  permissions = resolvedPermissions,
-                  isActive = remoteUser.isActive,
-                  isPremium = if (resolvedRole == "ADMIN") true else user.isPremium
-                )
-                database.userDao().updateUser(updated)
-                _currentUser.value = updated
+                  val updated = user.copy(
+                    fullName = remoteUser.fullName.ifBlank { user.fullName },
+                    phoneNumber = remoteUser.phone.ifBlank { user.phoneNumber },
+                    department = remoteUser.department.ifBlank { user.department },
+                    faculty = remoteUser.faculty.ifBlank { user.faculty },
+                    level = normalizedLevel,
+                    role = resolvedRole,
+                    adminRole = resolvedAdminRole,
+                    assignedCourses = resolvedAssignedCourses,
+                    permissions = resolvedPermissions,
+                    isActive = remoteUser.isActive,
+                    isPremium = if (resolvedRole == "ADMIN") true else user.isPremium
+                  )
+                  database.userDao().updateUser(updated)
+                  _currentUser.value = updated
+                }
+              } catch (e: Exception) {
+                Log.w(tag, "Notice checking database profile during session check: ${e.message}")
               }
-            } catch (e: Exception) {
-              Log.w(tag, "Notice checking database profile during session check: ${e.message}")
+            } else {
+              syncProfileFromSupabase(user.email)
             }
           } else {
-            syncProfileFromSupabase(user.email)
+            _currentUser.value = null
+            prefs.edit().remove("logged_in_user_id").apply()
           }
         } else {
           _currentUser.value = null
           prefs.edit().remove("logged_in_user_id").apply()
         }
-      } else {
-        _currentUser.value = null
-        prefs.edit().remove("logged_in_user_id").apply()
+      } finally {
+        _isSessionChecked.value = true
       }
     }
   }

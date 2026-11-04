@@ -44,7 +44,9 @@ class AuthViewModel(
   private val authRepository: AuthRepository
 ) : ViewModel() {
   val currentUser: StateFlow<UserEntity?> = authRepository.currentUser
-    .stateIn(viewModelScope, SharingStarted.Eagerly, null)
+    .stateIn(viewModelScope, SharingStarted.Eagerly, authRepository.getCurrentUserSnapshot())
+
+  val isSessionChecked: StateFlow<Boolean> = authRepository.isSessionChecked
 
   private val _authActionState = MutableStateFlow<UiState<UserEntity>>(UiState.Idle)
   val authActionState: StateFlow<UiState<UserEntity>> = _authActionState.asStateFlow()
