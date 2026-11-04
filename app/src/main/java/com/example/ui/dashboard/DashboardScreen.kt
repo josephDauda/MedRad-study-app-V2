@@ -132,17 +132,37 @@ fun DashboardScreen(
     val exam = pendingMockExam!!
     val isDeadlinePassed = mockCard.deadlineTimestamp > 0L && System.currentTimeMillis() >= mockCard.deadlineTimestamp
     val targetSession = mockCard.sessionId.trim().ifBlank { "Session 1" }
+    val incomingCode = LevelClassifier.extractCourseCode(mockCard.courseCode)
+      ?: LevelClassifier.extractCourseCode(exam.title)
+
     val existingAttempt = recentAttempts.firstOrNull { att ->
-      val attemptSession = try {
-        if (att.answersJson.startsWith("{")) {
-          org.json.JSONObject(att.answersJson).optJSONObject("_meta")?.optString("session_id", "Session 1") ?: "Session 1"
-        } else "Session 1"
-      } catch (_: Exception) { "Session 1" }
+      val meta = try {
+        if (att.answersJson.startsWith("{")) org.json.JSONObject(att.answersJson).optJSONObject("_meta") else null
+      } catch (_: Exception) { null }
+
+      val attemptSession = meta?.optString("session_id")?.takeIf { it.isNotBlank() } ?: "Session 1"
       val matchesSession = attemptSession.equals(targetSession, ignoreCase = true)
-      val matchesExam = (att.examId == exam.id) ||
-        (att.examTitle.equals(exam.title, ignoreCase = true)) ||
-        (mockCard.courseCode.isNotBlank() && att.courseTitle.contains(mockCard.courseCode, ignoreCase = true))
-      matchesExam && matchesSession
+      if (!matchesSession) return@firstOrNull false
+
+      val attemptCode = LevelClassifier.extractCourseCode(att.courseTitle)
+        ?: LevelClassifier.extractCourseCode(att.examTitle)
+
+      val isAttemptMock = (att.examId != null && att.examId > 0) ||
+        att.examTitle.contains("Mock", ignoreCase = true) ||
+        att.examTitle.contains("CBT", ignoreCase = true) ||
+        att.examTitle.contains("Assessment", ignoreCase = true) ||
+        att.examTitle.contains("Exam", ignoreCase = true) ||
+        att.examTitle.contains("Continuous", ignoreCase = true) ||
+        (meta?.optBoolean("is_mock_exam") == true)
+
+      val matchesCourse = when {
+        incomingCode != null && attemptCode != null -> incomingCode.equals(attemptCode, ignoreCase = true)
+        incomingCode != null -> att.courseTitle.contains(incomingCode, ignoreCase = true) || att.examTitle.contains(incomingCode, ignoreCase = true)
+        attemptCode != null && mockCard.courseCode.isNotBlank() -> mockCard.courseCode.contains(attemptCode, ignoreCase = true) || exam.title.contains(attemptCode, ignoreCase = true)
+        else -> (att.examId == exam.id) || att.examTitle.equals(exam.title, ignoreCase = true) || isAttemptMock
+      }
+
+      matchesCourse
     }
     val isAlreadyAttempted = existingAttempt != null
 
@@ -724,6 +744,33 @@ fun DashboardScreen(
 
           if (isMockActive) {
             val resolvedCourseId = if (isMockCardLevelMatch && mockCard.courseId > 0L) mockCard.courseId else (levelMatchingExams.firstOrNull()?.courseId ?: 0L)
+            val cardTargetSession = mockCard.sessionId.trim().ifBlank { "Session 1" }
+            val cardIncomingCode = LevelClassifier.extractCourseCode(mockCard.courseCode)
+            val completedCardAttempt = recentAttempts.firstOrNull { att ->
+              val meta = try {
+                if (att.answersJson.startsWith("{")) org.json.JSONObject(att.answersJson).optJSONObject("_meta") else null
+              } catch (_: Exception) { null }
+              val attSession = meta?.optString("session_id")?.takeIf { it.isNotBlank() } ?: "Session 1"
+              if (!attSession.equals(cardTargetSession, ignoreCase = true)) return@firstOrNull false
+
+              val attCode = LevelClassifier.extractCourseCode(att.courseTitle)
+                ?: LevelClassifier.extractCourseCode(att.examTitle)
+              val isAttemptMock = (att.examId != null && att.examId > 0) ||
+                att.examTitle.contains("Mock", ignoreCase = true) ||
+                att.examTitle.contains("CBT", ignoreCase = true) ||
+                att.examTitle.contains("Assessment", ignoreCase = true) ||
+                att.examTitle.contains("Exam", ignoreCase = true) ||
+                att.examTitle.contains("Continuous", ignoreCase = true) ||
+                (meta?.optBoolean("is_mock_exam") == true)
+
+              if (cardIncomingCode != null && attCode != null) {
+                cardIncomingCode.equals(attCode, ignoreCase = true)
+              } else {
+                isAttemptMock
+              }
+            }
+            val isCardAttemptCompleted = completedCardAttempt != null
+
             Surface(
               modifier = Modifier
                 .fillMaxWidth()
@@ -765,13 +812,13 @@ fun DashboardScreen(
               ) {
                 Column(modifier = Modifier.weight(1f)) {
                   Text(
-                    text = mockCard.examTitle.ifBlank { "Mock CBT" },
+                    text = if (isCardAttemptCompleted) "${mockCard.examTitle.ifBlank { "Mock CBT" }} • Completed" else mockCard.examTitle.ifBlank { "Mock CBT" },
                     style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
                     color = Color(0xFF0F766E),
                     maxLines = 1
                   )
                   Text(
-                    text = "${if (isMockCardLevelMatch) mockCard.courseCode else (levelMatchingExams.firstOrNull()?.title ?: user.level)} • ${mockCard.durationMinutes}m Timed",
+                    text = if (isCardAttemptCompleted) "Score: ${completedCardAttempt.score}% • Submitted for $cardTargetSession" else "${if (isMockCardLevelMatch) mockCard.courseCode else (levelMatchingExams.firstOrNull()?.title ?: user.level)} • ${mockCard.durationMinutes}m Timed",
                     style = MaterialTheme.typography.labelSmall,
                     color = Color(0xFF115E59)
                   )
@@ -782,7 +829,7 @@ fun DashboardScreen(
                   modifier = Modifier.size(28.dp)
                 ) {
                   Box(contentAlignment = Alignment.Center) {
-                    Icon(Icons.Default.Assignment, contentDescription = null, tint = Color.White, modifier = Modifier.size(15.dp))
+                    Icon(if (isCardAttemptCompleted) Icons.Default.CheckCircle else Icons.Default.Assignment, contentDescription = null, tint = Color.White, modifier = Modifier.size(16.dp))
                   }
                 }
               }

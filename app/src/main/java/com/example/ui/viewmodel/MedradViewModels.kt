@@ -297,8 +297,13 @@ class DashboardViewModel(
     viewModelScope.launch {
       val remaining = cbtRepository.getRemainingAllowance(user)
       _dailyAllowance.value = remaining
-      val attempts = cbtRepository.getUserAttemptsList(user.id, 5)
-      _recentAttempts.value = attempts
+
+      // Reactively observe user attempts so that submissions and admin deletions reflect immediately
+      cbtRepository.getUserAttempts(user.id).collect { attempts ->
+        _recentAttempts.value = attempts
+      }
+    }
+    viewModelScope.launch {
       try {
         cloudSyncManager?.pullAppConfig()
         cloudSyncManager?.pullExams()
@@ -376,18 +381,28 @@ class CbtViewModel(
         return@launch
       }
 
-      val course = academicRepository?.getCourseById(courseId)
+      val allCourses = academicRepository?.getCoursesList() ?: emptyList()
+      val levelMatchingCourse = allCourses.firstOrNull { LevelClassifier.matchesUserLevel(user, it.code, it.level) }
+
+      val rawCourse = academicRepository?.getCourseById(courseId)
         ?: if (!customCode.isNullOrBlank()) academicRepository?.getCourseByCode(customCode) else null
-      val effectiveCourseId = course?.id ?: courseId
-      val code = if (!customCode.isNullOrBlank() && !customCode.contains(courseId.toString())) {
+
+      val effectiveCourse = if (rawCourse != null && LevelClassifier.matchesUserLevel(user, rawCourse.code, rawCourse.level)) {
+        rawCourse
+      } else {
+        levelMatchingCourse ?: rawCourse
+      }
+
+      val effectiveCourseId = effectiveCourse?.id ?: courseId
+      val code = if (!customCode.isNullOrBlank() && !customCode.contains(courseId.toString()) && LevelClassifier.matchesUserLevel(user, customCode, null)) {
         customCode
       } else {
-        course?.code ?: "ANA 201"
+        effectiveCourse?.code ?: "${user.level} CBT"
       }
-      val title = if (!customTitle.isNullOrBlank() && !customTitle.contains(courseId.toString())) {
+      val title = if (!customTitle.isNullOrBlank() && !customTitle.contains(courseId.toString()) && (effectiveCourse == null || LevelClassifier.matchesUserLevel(user, customTitle, null))) {
         customTitle
       } else {
-        course?.title ?: "${user.level} Practice Session"
+        effectiveCourse?.title ?: "${user.level} Practice Session"
       }
 
       // Pull latest questions from cloud if network is available
@@ -428,8 +443,8 @@ class CbtViewModel(
         }
       }
 
-      val displayExamTitle = if (course != null) {
-        "${course.code} — ${course.title}"
+      val displayExamTitle = if (effectiveCourse != null) {
+        "${effectiveCourse.code} — ${effectiveCourse.title}"
       } else if (!customTitle.isNullOrBlank() && !customCode.isNullOrBlank()) {
         "$customCode — $customTitle"
       } else {
@@ -456,11 +471,21 @@ class CbtViewModel(
     viewModelScope.launch {
       _sessionState.value = CbtSessionState(isLoading = true)
 
+      val allCourses = academicRepository?.getCoursesList() ?: emptyList()
+      val levelMatchingCourse = allCourses.firstOrNull { LevelClassifier.matchesUserLevel(user, it.code, it.level) }
+      val rawCourse = academicRepository?.getCourseById(exam.courseId)
+      val effectiveCourse = if (rawCourse != null && LevelClassifier.matchesUserLevel(user, rawCourse.code, rawCourse.level)) {
+        rawCourse
+      } else {
+        levelMatchingCourse ?: rawCourse
+      }
+      val effectiveExamCourseId = effectiveCourse?.id ?: exam.courseId
+
       // 1. Pull latest questions, exams and configurations from cloud and flush pending submissions
       try {
         cloudSyncManager?.pushPendingExamAttempts()
         cloudSyncManager?.pullExams()
-        cloudSyncManager?.pullQuestions(exam.courseId)
+        cloudSyncManager?.pullQuestions(effectiveExamCourseId)
         cloudSyncManager?.pullAppConfig()
       } catch (e: Exception) {
         Log.w("CbtViewModel", "Cloud sync on mock exam start notice: ${e.message}")
@@ -470,12 +495,11 @@ class CbtViewModel(
         ?: cloudSyncManager?.mockCardConfig?.value
         ?: com.example.data.sync.MockCardConfig()
       val isExpired = mockConfig.deadlineTimestamp > 0 && System.currentTimeMillis() >= mockConfig.deadlineTimestamp
-      val course = academicRepository?.getCourseById(exam.courseId)
-      val code = course?.code ?: mockConfig.courseCode.ifBlank { "${user.level} CBT" }
-      val title = course?.title ?: mockConfig.courseTitle.ifBlank { "${user.level} Mock Examination" }
+      val code = effectiveCourse?.code ?: mockConfig.courseCode.ifBlank { "${user.level} CBT" }
+      val title = effectiveCourse?.title ?: mockConfig.courseTitle.ifBlank { "${user.level} Mock Examination" }
       val displayExamTitle = if (mockConfig.isConfigured && mockConfig.examTitle.isNotBlank()) {
         mockConfig.examTitle
-      } else if (exam.title.isNotBlank()) {
+      } else if (exam.title.isNotBlank() && LevelClassifier.matchesUserLevel(user, exam.title, null)) {
         exam.title
       } else {
         "$code — $title Mock Exam"
@@ -502,7 +526,8 @@ class CbtViewModel(
         examId = exam.id.takeIf { it > 0 },
         examTitle = displayExamTitle,
         courseCode = code,
-        sessionId = activeSession
+        sessionId = activeSession,
+        userEmail = user.email
       )
       if (existingAttempt != null) {
         _sessionState.value = CbtSessionState(
@@ -536,9 +561,9 @@ class CbtViewModel(
 
       if (resolvedQuestions.isEmpty()) {
         val qLimit = maxOf(exam.totalQuestions, mockConfig.questionCount.takeIf { it > 0 } ?: 15)
-        val isGeneralExam = (exam.courseId == 0L || exam.courseId == 9999L) && !code.contains("RAD", ignoreCase = true) && !code.contains("BIO", ignoreCase = true)
+        val isGeneralExam = (effectiveExamCourseId == 0L || effectiveExamCourseId == 9999L) && !code.contains("RAD", ignoreCase = true) && !code.contains("BIO", ignoreCase = true)
         val examQuestions = cbtRepository.getExamQuestions(
-          courseId = exam.courseId,
+          courseId = effectiveExamCourseId,
           totalQuestions = qLimit,
           examRemoteId = exam.remoteId,
           allowDepartmentalFallback = isGeneralExam,
@@ -546,7 +571,7 @@ class CbtViewModel(
         )
         // Strictly filter candidate questions to the student's registered level and course ID
         val levelMatchingExamQ = examQuestions.filter { q ->
-          val matchesCourse = if (exam.courseId > 0 && !isGeneralExam) q.courseId == exam.courseId else true
+          val matchesCourse = if (effectiveExamCourseId > 0 && !isGeneralExam) q.courseId == effectiveExamCourseId else true
           val parentCourse = academicRepository?.getCourseById(q.courseId)
           matchesCourse && LevelClassifier.matchesUserLevel(user, parentCourse?.code, parentCourse?.level)
         }

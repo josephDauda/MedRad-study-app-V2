@@ -118,9 +118,9 @@ fun CoursesScreen(
   val coroutineScope = rememberCoroutineScope()
   val isSyncing by (cloudSyncManager?.isSyncing ?: remember { MutableStateFlow(false) }).collectAsState()
   val allCourses by academicRepository.getAllCourses().collectAsState(initial = emptyList())
-  val userDefaultLevel = com.example.data.util.LevelClassifier.normalizeLevel(user.level)
-  var selectedLevelFilter by remember { mutableStateOf("My Level ($userDefaultLevel)") }
-  val levelOptions = listOf("My Level ($userDefaultLevel)", "All Levels", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level")
+  val userDefaultLevel = remember(user.level) { com.example.data.util.LevelClassifier.normalizeLevel(user.level) }
+  var selectedLevelFilter by remember(userDefaultLevel) { mutableStateOf("My Level ($userDefaultLevel)") }
+  val levelOptions = remember(userDefaultLevel) { listOf("My Level ($userDefaultLevel)", "All Levels", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level") }
   val effectiveFilter = if (selectedLevelFilter.startsWith("My Level")) userDefaultLevel else selectedLevelFilter
 
   val courses = remember(allCourses, effectiveFilter) {
@@ -134,7 +134,7 @@ fun CoursesScreen(
     }
   }
 
-  var selectedCourseId by remember { mutableStateOf<Long?>(null) }
+  var selectedCourseId by remember(effectiveFilter) { mutableStateOf<Long?>(null) }
   val activeCourse = courses.find { it.id == selectedCourseId } ?: courses.firstOrNull()
   val activeCourseId = activeCourse?.id ?: -1L
 

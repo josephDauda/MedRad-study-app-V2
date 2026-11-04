@@ -1448,7 +1448,7 @@ fun AdminLibrariesView(
       (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && (currentUser.level.isBlank() || currentUser.level.equals("Staff", ignoreCase = true)))
   val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
-  var selectedLevelFilter by remember { mutableStateOf(if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else "All") }
+  var selectedLevelFilter by remember(secondaryAdminLevel, isPrimary) { mutableStateOf(if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else "All") }
   val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
   var selectedCourseFilter by remember { mutableStateOf("All Courses") }
   var searchQuery by remember { mutableStateOf("") }
@@ -1955,7 +1955,7 @@ fun AdminSyllabusView(
     }
   }
 
-  var selectedLevelFilter by remember { mutableStateOf(if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else "All") }
+  var selectedLevelFilter by remember(secondaryAdminLevel, isPrimary) { mutableStateOf(if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else "All") }
   val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level")
 
   var selectedCourseId by remember { mutableStateOf<Long?>(null) }

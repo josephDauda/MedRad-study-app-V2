@@ -101,9 +101,9 @@ fun StudyMaterialsScreen(
   val allMaterials by academicRepository.getAllMaterials().collectAsState(initial = emptyList())
   val allCourses by academicRepository.getAllCourses().collectAsState(initial = emptyList())
   val courseMap = remember(allCourses) { allCourses.associateBy { it.id } }
-  val userDefaultLevel = com.example.data.util.LevelClassifier.normalizeLevel(user.level)
-  var selectedLevelFilter by remember { mutableStateOf("My Level ($userDefaultLevel)") }
-  val levelOptions = listOf("My Level ($userDefaultLevel)", "All Levels", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level")
+  val userDefaultLevel = remember(user.level) { com.example.data.util.LevelClassifier.normalizeLevel(user.level) }
+  var selectedLevelFilter by remember(userDefaultLevel) { mutableStateOf("My Level ($userDefaultLevel)") }
+  val levelOptions = remember(userDefaultLevel) { listOf("My Level ($userDefaultLevel)", "All Levels", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level") }
   val effectiveFilter = if (selectedLevelFilter.startsWith("My Level")) userDefaultLevel else selectedLevelFilter
 
   val courses = remember(allCourses, effectiveFilter) {
@@ -118,7 +118,7 @@ fun StudyMaterialsScreen(
   }
 
   var searchQuery by remember { mutableStateOf("") }
-  var selectedCourseId by remember { mutableStateOf<Long?>(null) } // null means "All Courses"
+  var selectedCourseId by remember(effectiveFilter) { mutableStateOf<Long?>(null) } // null means "All Courses"
   var selectedCategory by remember { mutableStateOf("All") }
   var viewingMaterial by remember { mutableStateOf<StudyMaterialEntity?>(null) }
   var showLockedDialog by remember { mutableStateOf(false) }

@@ -146,8 +146,8 @@ fun CbtScreen(
   }
 
   // Navigate when submitted
-  LaunchedEffect(sessionState.isSubmitted, sessionState.submittedAttemptId) {
-    if (sessionState.isSubmitted && sessionState.submittedAttemptId != null) {
+  LaunchedEffect(sessionState.isSubmitted, sessionState.submittedAttemptId, sessionState.isAlreadyAttempted) {
+    if (sessionState.isSubmitted && sessionState.submittedAttemptId != null && !sessionState.isAlreadyAttempted) {
       onExamSubmitted(sessionState.submittedAttemptId!!)
     }
   }
@@ -282,6 +282,56 @@ fun CbtScreen(
       if (sessionState.isLoading) {
         Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
           CircularProgressIndicator(color = MaterialTheme.colorScheme.primary)
+        }
+      } else if (sessionState.isAlreadyAttempted) {
+        Box(
+          modifier = Modifier
+            .fillMaxSize()
+            .padding(24.dp),
+          contentAlignment = Alignment.Center
+        ) {
+          Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center
+          ) {
+            Icon(
+              imageVector = Icons.Default.CheckCircle,
+              contentDescription = null,
+              modifier = Modifier.size(56.dp),
+              tint = Color(0xFF0F766E)
+            )
+            Spacer(modifier = Modifier.height(16.dp))
+            Text(
+              text = "Examination Already Completed",
+              style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+              color = MaterialTheme.colorScheme.onSurface
+            )
+            Spacer(modifier = Modifier.height(6.dp))
+            Text(
+              text = "You have already completed and submitted your examination for ${sessionState.sessionId}. In accordance with departmental rules, only one attempt is permitted per session.",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+              textAlign = androidx.compose.ui.text.style.TextAlign.Center
+            )
+            Spacer(modifier = Modifier.height(20.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+              if (sessionState.submittedAttemptId != null) {
+                Button(
+                  onClick = { onExamSubmitted(sessionState.submittedAttemptId!!) },
+                  colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF0F766E)),
+                  shape = RoundedCornerShape(10.dp)
+                ) {
+                  Text("View Official Result")
+                }
+              }
+              OutlinedButton(
+                onClick = onNavigateBack,
+                shape = RoundedCornerShape(10.dp)
+              ) {
+                Text("Return to Dashboard")
+              }
+            }
+          }
         }
       } else if (sessionState.isDeadlineExpired) {
         Box(

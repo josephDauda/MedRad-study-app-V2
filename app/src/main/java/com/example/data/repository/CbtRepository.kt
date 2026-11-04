@@ -472,30 +472,64 @@ class CbtRepository(
     examId: Long?,
     examTitle: String,
     courseCode: String? = null,
-    sessionId: String? = null
+    sessionId: String? = null,
+    userEmail: String? = null
   ): ExamAttemptEntity? {
     return withContext(Dispatchers.IO) {
       val targetSession = sessionId?.trim()?.ifBlank { "Session 1" } ?: "Session 1"
-      val userAttempts = examDao.getAttemptsForUserList(userId)
+      val userAttempts = examDao.getAttemptsForUserList(userId).toMutableList()
+
+      // Also retrieve attempts matching the student's email in case userId mapping varies
+      if (!userEmail.isNullOrBlank()) {
+        try {
+          val allAttempts = examDao.getAllAttemptsList()
+          for (att in allAttempts) {
+            if (userAttempts.none { it.id == att.id }) {
+              val meta = if (att.answersJson.startsWith("{")) org.json.JSONObject(att.answersJson).optJSONObject("_meta") else null
+              val studentEmail = meta?.optString("student_email")
+              if (studentEmail?.equals(userEmail.trim(), ignoreCase = true) == true) {
+                userAttempts.add(att)
+              }
+            }
+          }
+        } catch (_: Exception) {}
+      }
+
+      val incomingCode = LevelClassifier.extractCourseCode(courseCode)
+        ?: LevelClassifier.extractCourseCode(examTitle)
 
       userAttempts.firstOrNull { attempt ->
-        val attemptSession = try {
-          if (attempt.answersJson.startsWith("{")) {
-            org.json.JSONObject(attempt.answersJson).optJSONObject("_meta")?.optString("session_id", "Session 1") ?: "Session 1"
-          } else "Session 1"
-        } catch (_: Exception) { "Session 1" }
+        val attemptMeta = try {
+          if (attempt.answersJson.startsWith("{")) org.json.JSONObject(attempt.answersJson).optJSONObject("_meta") else null
+        } catch (_: Exception) { null }
+
+        val attemptSession = attemptMeta?.optString("session_id")?.takeIf { it.isNotBlank() } ?: "Session 1"
 
         // Session differentiation: only block retake if attempt belongs to the active target session
         val matchesSession = attemptSession.equals(targetSession, ignoreCase = true)
+        if (!matchesSession) return@firstOrNull false
 
-        val matchesExam = (examId != null && examId > 0 && attempt.examId == examId) ||
-            (attempt.examTitle.isNotBlank() && attempt.examTitle.equals(examTitle.trim(), ignoreCase = true)) ||
-            (!courseCode.isNullOrBlank() && (
-              attempt.examTitle.contains(courseCode.trim(), ignoreCase = true) ||
-              attempt.courseTitle.contains(courseCode.trim(), ignoreCase = true)
-            ))
+        val attemptCode = LevelClassifier.extractCourseCode(attempt.courseTitle)
+          ?: LevelClassifier.extractCourseCode(attempt.examTitle)
 
-        matchesExam && matchesSession
+        val isAttemptMock = (attempt.examId != null && attempt.examId > 0) ||
+            attempt.examTitle.contains("Mock", ignoreCase = true) ||
+            attempt.examTitle.contains("CBT", ignoreCase = true) ||
+            attempt.examTitle.contains("Assessment", ignoreCase = true) ||
+            attempt.examTitle.contains("Exam", ignoreCase = true) ||
+            attempt.examTitle.contains("Continuous", ignoreCase = true) ||
+            (attemptMeta?.optBoolean("is_mock_exam") == true)
+
+        val matchesCourse = when {
+          incomingCode != null && attemptCode != null -> incomingCode.equals(attemptCode, ignoreCase = true)
+          incomingCode != null -> attempt.courseTitle.contains(incomingCode, ignoreCase = true) || attempt.examTitle.contains(incomingCode, ignoreCase = true)
+          attemptCode != null && !courseCode.isNullOrBlank() -> courseCode.contains(attemptCode, ignoreCase = true) || examTitle.contains(attemptCode, ignoreCase = true)
+          else -> (examId != null && examId > 0 && attempt.examId == examId) ||
+                  attempt.examTitle.equals(examTitle.trim(), ignoreCase = true) ||
+                  isAttemptMock
+        }
+
+        matchesCourse
       }
     }
   }
