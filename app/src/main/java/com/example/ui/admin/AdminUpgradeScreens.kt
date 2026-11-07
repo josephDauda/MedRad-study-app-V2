@@ -956,7 +956,7 @@ fun AdminScoreExportView(
   val isPrimary = currentUser == null ||
       currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
       currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && (currentUser.level.isBlank() || currentUser.level.equals("Staff", ignoreCase = true)))
+      !currentUser.adminRole.equals("SECONDARY", ignoreCase = true)
   val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   var selectedLevelFilter by remember(secondaryAdminLevel, isPrimary) {

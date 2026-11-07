@@ -426,12 +426,10 @@ fun AdminDashboardScreen(
     }
   }
 
-  val isPrimaryAdmin = user.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-      user.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      (user.adminRole.isBlank() && user.assignedCourses.isBlank() && user.level.isBlank())
+  val isPrimaryAdmin = user.email.equals("admin@medrad.edu.ng", ignoreCase = true)
   val secondaryAdminScopeLevel = if (!isPrimaryAdmin) LevelClassifier.normalizeLevel(user.level.ifBlank { user.assignedCourses }) else null
   val scopedAdminCourses = remember(courses, isPrimaryAdmin, secondaryAdminScopeLevel) {
-    if (!isPrimaryAdmin && secondaryAdminScopeLevel != null) {
+    if (!isPrimaryAdmin && secondaryAdminScopeLevel != null && secondaryAdminScopeLevel != "All Levels") {
       courses.filter { LevelClassifier.matchesLevel(secondaryAdminScopeLevel, it.code) || LevelClassifier.matchesLevel(secondaryAdminScopeLevel, it.level) }
     } else {
       courses
@@ -788,10 +786,7 @@ fun AdminQuestionsView(
 ) {
   var showClearConfirm by remember { mutableStateOf(false) }
 
-  val isPrimary = currentUser == null ||
-      currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-      currentUser.adminRole.isBlank()
+  val isPrimary = currentUser == null || currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true)
   val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   var selectedLevelFilter by remember { mutableStateOf("All") }
@@ -818,7 +813,7 @@ fun AdminQuestionsView(
   }
 
   val displayQuestions = remember(baseQuestions, selectedLevelFilter, selectedCourseFilter, searchQuery, isPrimary) {
-    var list = if (isPrimary && selectedLevelFilter != "All") {
+    var list = if (selectedLevelFilter != "All") {
       baseQuestions.filter { q ->
         val courseCode = courses.find { it.id == q.courseId }?.code
         LevelClassifier.matchesLevel(selectedLevelFilter, courseCode)
@@ -1083,10 +1078,7 @@ fun AdminExamsView(
   onAddExam: () -> Unit,
   onDeleteExam: (ExamEntity) -> Unit
 ) {
-  val isPrimary = currentUser == null ||
-      currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-      currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && (currentUser.level.isBlank() || currentUser.level.equals("Staff", ignoreCase = true)))
+  val isPrimary = currentUser == null || currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true)
   val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   val displayExams = remember(exams, isPrimary, secondaryAdminLevel, courses) {
@@ -1220,10 +1212,7 @@ fun AdminMaterialsView(
   onAddMaterial: () -> Unit,
   onDeleteMaterial: (StudyMaterialEntity) -> Unit
 ) {
-  val isPrimary = currentUser == null ||
-      currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-      currentUser.adminRole.isBlank()
+  val isPrimary = currentUser == null || currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true)
   val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   var selectedLevelFilter by remember { mutableStateOf("All") }
@@ -1250,7 +1239,7 @@ fun AdminMaterialsView(
   }
 
   val displayMaterials = remember(baseMaterials, selectedLevelFilter, selectedCourseFilter, searchQuery, isPrimary) {
-    var list = if (isPrimary && selectedLevelFilter != "All") {
+    var list = if (selectedLevelFilter != "All") {
       baseMaterials.filter { mat ->
         val courseCode = courses.find { it.id == mat.courseId }?.code
         LevelClassifier.matchesLevel(selectedLevelFilter, courseCode)
@@ -1442,10 +1431,7 @@ fun AdminLibrariesView(
   onDeleteLibrary: (CourseLibraryEntity) -> Unit
 ) {
   val context = LocalContext.current
-  val isPrimary = currentUser == null ||
-      currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-      currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && (currentUser.level.isBlank() || currentUser.level.equals("Staff", ignoreCase = true)))
+  val isPrimary = currentUser == null || currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true)
   val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   var selectedLevelFilter by remember(secondaryAdminLevel, isPrimary) { mutableStateOf(if (!isPrimary && secondaryAdminLevel != null) secondaryAdminLevel else "All") }
@@ -1710,16 +1696,16 @@ fun AdminRolesView(
   onToggleActive: (UserEntity, Boolean) -> Unit,
   onRemoveAdmin: (UserEntity) -> Unit
 ) {
-  val isPrimary = currentUser.adminRole == "PRIMARY" || currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) || currentUser.adminRole.isBlank()
+  val isPrimary = currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true)
   var adminToDelete by remember { mutableStateOf<UserEntity?>(null) }
 
   if (adminToDelete != null) {
     val target = adminToDelete!!
     AlertDialog(
       onDismissRequest = { adminToDelete = null },
-      title = { Text("Delete Secondary Administrator", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) },
+      title = { Text("Remove Secondary Administrator", style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)) },
       text = {
-        Text("Are you sure you want to remove ${target.fullName} (${target.email}) as a secondary administrator? Their administrative privileges will be revoked and deleted from both local and cloud databases.")
+        Text("Are you sure you want to remove ${target.fullName} (${target.email}) from being an administrator? Their administrative privileges will be revoked and their account will return to the ${target.level} student list.")
       },
       confirmButton = {
         Button(
@@ -1731,7 +1717,7 @@ fun AdminRolesView(
           colors = ButtonDefaults.buttonColors(containerColor = ErrorRed),
           shape = RoundedCornerShape(8.dp)
         ) {
-          Text("Delete Admin")
+          Text("Remove Admin")
         }
       },
       dismissButton = {
@@ -1834,7 +1820,7 @@ fun AdminRolesView(
         }
       } else {
         items(admins) { admin ->
-          val isTargetPrimary = admin.adminRole.equals("PRIMARY", ignoreCase = true) || admin.email.equals("admin@medrad.edu.ng", ignoreCase = true)
+          val isTargetPrimary = admin.email.equals("admin@medrad.edu.ng", ignoreCase = true)
         Card(
           modifier = Modifier.fillMaxWidth(),
           shape = RoundedCornerShape(12.dp),
@@ -1941,10 +1927,7 @@ fun AdminSyllabusView(
   onEditTopic: (TopicEntity) -> Unit,
   onDeleteTopic: (TopicEntity) -> Unit
 ) {
-  val isPrimary = currentUser == null ||
-      currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-      currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && (currentUser.level.isBlank() || currentUser.level.equals("Staff", ignoreCase = true)))
+  val isPrimary = currentUser == null || currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true)
   val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   val scopedCourses = remember(courses, isPrimary, secondaryAdminLevel) {
@@ -2577,11 +2560,7 @@ fun AdminStudentsView(
   onPromoteToAdmin: ((UserEntity) -> Unit)? = null
 ) {
   var searchQuery by remember { mutableStateOf("") }
-  val isPrimary = currentUser == null ||
-      currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-      currentUser.adminRole.isBlank()
-
+  val isPrimary = currentUser == null || currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true)
   val secondaryAdminLevel = LevelClassifier.getSecondaryAdminLevel(currentUser)
 
   var selectedLevelFilter by remember(secondaryAdminLevel, isPrimary) {
@@ -2589,8 +2568,17 @@ fun AdminStudentsView(
   }
   val levelOptions = listOf("All", "100 Level", "200 Level", "300 Level", "400 Level", "500 Level", "600 Level")
 
-  val filteredStudents = remember(students, searchQuery, selectedLevelFilter) {
+  val nonTestStudents = remember(students) {
     students.filter { s ->
+      val email = s.email.trim().lowercase()
+      !(email.startsWith("test_radiographer") ||
+        email.startsWith("test_robolectric") ||
+        email == "student@medrad.edu.ng")
+    }
+  }
+
+  val filteredStudents = remember(nonTestStudents, searchQuery, selectedLevelFilter) {
+    nonTestStudents.filter { s ->
       val matchesSearch = searchQuery.isBlank() ||
         s.fullName.contains(searchQuery, ignoreCase = true) ||
         s.email.contains(searchQuery, ignoreCase = true) ||
@@ -2609,7 +2597,7 @@ fun AdminStudentsView(
     ) {
       Column {
         Text(
-          text = if (isPrimary) "Enrolled Students (${filteredStudents.size} of ${students.size})" else "Enrolled Students (${filteredStudents.size} of ${students.size})",
+          text = "Enrolled Students (${filteredStudents.size} of ${nonTestStudents.size})",
           style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
           color = MaterialTheme.colorScheme.onSurface
         )
@@ -4335,10 +4323,7 @@ fun AdminLiveCloudSyncView(
   val allQuestions by adminViewModel.allQuestions.collectAsState()
   val allExams by adminViewModel.allExams.collectAsState()
 
-  val isPrimary = currentUser == null ||
-      currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-      currentUser.adminRole.equals("PRIMARY", ignoreCase = true) ||
-      (currentUser.adminRole.isBlank() && currentUser.assignedCourses.isBlank() && currentUser.level.isBlank())
+  val isPrimary = currentUser == null || currentUser.email.equals("admin@medrad.edu.ng", ignoreCase = true)
   val secondaryScopeLevel = if (!isPrimary) LevelClassifier.normalizeLevel(currentUser?.level?.ifBlank { currentUser?.assignedCourses }) else null
 
   val availableLevels = if (!isPrimary && secondaryScopeLevel != null && secondaryScopeLevel != "All Levels") {

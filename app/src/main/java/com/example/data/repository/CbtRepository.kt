@@ -90,6 +90,16 @@ class CbtRepository(
     studentLevel: String? = null
   ): List<QuestionEntity> {
     return withContext(Dispatchers.IO) {
+      if (courseId > 0L) {
+        val courseQuestions = questionDao.getPublishedQuestionsForCourseList(courseId)
+        if (courseQuestions.isNotEmpty()) {
+          return@withContext if (limit <= 0 || limit >= courseQuestions.size) {
+            courseQuestions.shuffled()
+          } else {
+            courseQuestions.shuffled().take(limit)
+          }
+        }
+      }
       if (!studentLevel.isNullOrBlank()) {
         val course = database.academicDao().getCourseById(courseId)
         if (course != null) {
@@ -99,7 +109,11 @@ class CbtRepository(
         }
       }
       val questions = questionDao.getPublishedQuestionsForCourseList(courseId)
-      questions.shuffled().take(limit)
+      if (limit <= 0 || limit >= questions.size) {
+        questions.shuffled()
+      } else {
+        questions.shuffled().take(limit)
+      }
     }
   }
 
@@ -112,6 +126,13 @@ class CbtRepository(
   ): List<QuestionEntity> {
     return withContext(Dispatchers.IO) {
       val allCourses = database.academicDao().getCoursesList().associateBy { it.id }
+
+      if (!studentLevel.isNullOrBlank() && courseId > 0L && courseId != 9999L) {
+        val course = allCourses[courseId]
+        if (course != null && !LevelClassifier.matchesLevel(studentLevel, course.code.ifBlank { course.level })) {
+          return@withContext emptyList<QuestionEntity>()
+        }
+      }
 
       val specificExamQuestions = if (!examRemoteId.isNullOrBlank()) {
         questionDao.getQuestionsByRemoteExamId(examRemoteId).filter { it.isPublished }
@@ -130,7 +151,8 @@ class CbtRepository(
         }
       }
 
-      if (basePool.size < totalQuestions && (allowDepartmentalFallback || courseId == 9999L)) {
+      val isGeneralExam = (courseId == 0L || courseId == 9999L)
+      if (basePool.size < totalQuestions && (allowDepartmentalFallback && isGeneralExam || courseId == 9999L)) {
         val extra = questionDao.getAllQuestionsList().filter { it.isPublished }
 
         for (q in extra) {

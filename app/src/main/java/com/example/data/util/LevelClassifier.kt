@@ -33,9 +33,7 @@ object LevelClassifier {
    */
   fun getSecondaryAdminLevel(admin: UserEntity?): String? {
     if (admin == null || admin.role != "ADMIN") return null
-    val isPrimary = admin.adminRole.equals("PRIMARY", ignoreCase = true) ||
-        admin.email.equals("admin@medrad.edu.ng", ignoreCase = true) ||
-        (admin.adminRole.isBlank() && admin.assignedCourses.isBlank() && (admin.level.isBlank() || admin.level.equals("Staff", ignoreCase = true)))
+    val isPrimary = admin.email.equals("admin@medrad.edu.ng", ignoreCase = true)
     if (isPrimary) return null
 
     val raw = when {

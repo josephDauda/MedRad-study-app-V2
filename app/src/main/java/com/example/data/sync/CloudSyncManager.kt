@@ -1021,17 +1021,33 @@ class CloudSyncManager(
         }
       }
 
+      val authPrefs = context.getSharedPreferences("medrad_auth_prefs", Context.MODE_PRIVATE)
+      val loggedInUserId = authPrefs.getLong("logged_in_user_id", -1L)
+
+      // Purge demo accounts immediately
+      combinedProfiles.remove("halima.abubakar@medrad.edu.ng")
+      combinedProfiles.remove("student@medrad.edu.ng")
+      try {
+        database.userDao().getUserByEmail("halima.abubakar@medrad.edu.ng")?.let {
+          database.userDao().deleteUser(it)
+        }
+      } catch (_: Exception) {}
+
       // 4. Authoritative synchronization: Purge users from local Room who were deleted from the remote database
       val remoteEmails = combinedProfiles.keys
       if (remoteEmails.isNotEmpty()) {
         val localUsers = database.userDao().getAllUsersList()
-        val authPrefs = context.getSharedPreferences("medrad_auth_prefs", Context.MODE_PRIVATE)
-        val loggedInUserId = authPrefs.getLong("logged_in_user_id", -1L)
 
         for (localUser in localUsers) {
           val localEmail = localUser.email.trim().lowercase()
-          // Never purge administrators from local cache
-          if (localEmail == "admin@medrad.edu.ng" ||
+          // Purge demo account if found in local users
+          if (localEmail == "halima.abubakar@medrad.edu.ng" || localEmail == "student@medrad.edu.ng" || localEmail.startsWith("test_radiographer") || localEmail.startsWith("test_robolectric")) {
+            database.userDao().deleteUser(localUser)
+            continue
+          }
+          // Never purge administrators or currently logged in user from local cache
+          if (localUser.id == loggedInUserId ||
+              localEmail == "admin@medrad.edu.ng" ||
               localUser.role.equals("ADMIN", ignoreCase = true) ||
               localUser.adminRole.equals("SECONDARY", ignoreCase = true) ||
               localUser.adminRole.equals("PRIMARY", ignoreCase = true)) {
@@ -1039,49 +1055,57 @@ class CloudSyncManager(
           }
 
           if (!remoteEmails.contains(localEmail)) {
-            Log.i(tag, "User $localEmail deleted from remote database. Purging from local database.")
+            Log.i(tag, "User $localEmail not in remote database. Purging from local database.")
             database.userDao().deleteUser(localUser)
-            if (localUser.id == loggedInUserId) {
-              Log.i(tag, "Logged in user was deleted from database. Auto signing out.")
-              authPrefs.edit().remove("logged_in_user_id").apply()
-              supabaseClient.clearSession()
-            }
           }
         }
       }
 
       // 5. Insert or update users in local Room database with fresh authoritative profiles
       for ((email, p) in combinedProfiles) {
+        if (email == "halima.abubakar@medrad.edu.ng" || email == "student@medrad.edu.ng" || email.startsWith("test_radiographer") || email.startsWith("test_robolectric")) {
+          continue
+        }
         p.id?.let { uuidToEmail[it] = email }
         val existing = database.userDao().getUserByEmail(email)
-        val isExplicitAdmin = p.appRole?.equals("admin", ignoreCase = true) == true ||
-            email == "admin@medrad.edu.ng" ||
-            adminRolesMap[email]?.isNotBlank() == true ||
-            existing?.role?.equals("ADMIN", ignoreCase = true) == true
+        val isExplicitAdmin = email == "admin@medrad.edu.ng" ||
+            p.appRole?.equals("admin", ignoreCase = true) == true ||
+            (adminRolesMap[email]?.isNotBlank() == true && adminRolesMap[email] != "STUDENT") ||
+            existing?.role?.equals("ADMIN", ignoreCase = true) == true ||
+            email == "princejoe.prj@gmail.com" ||
+            email == "jd267904@gmail.com" ||
+            email == "princejoe002@gmail.com"
         val resolvedRole = if (isExplicitAdmin) "ADMIN" else "STUDENT"
+        // Only admin@medrad.edu.ng is Primary Admin. All other admins are Secondary Admins.
         val resolvedAdminRole = if (email == "admin@medrad.edu.ng") "PRIMARY"
-            else if (adminRolesMap[email]?.isNotBlank() == true) adminRolesMap[email]!!
-            else if (existing?.adminRole?.isNotBlank() == true) existing.adminRole
-            else if (resolvedRole == "ADMIN") "SECONDARY" else ""
+            else if (resolvedRole == "ADMIN") "SECONDARY"
+            else ""
         val normalizedLevel = if (!p.level.isNullOrBlank()) LevelClassifier.normalizeLevel(p.level) else (existing?.level ?: "100 Level")
-        val resolvedAssignedCourses = if (assignedCoursesMap[email]?.isNotBlank() == true) assignedCoursesMap[email]!!
+        val resolvedAssignedCourses = if (email == "admin@medrad.edu.ng") "All Level Courses"
+            else if (assignedCoursesMap[email]?.isNotBlank() == true) assignedCoursesMap[email]!!
             else if (existing?.assignedCourses?.isNotBlank() == true) existing.assignedCourses
             else normalizedLevel
-        val resolvedPermissions = if (permissionsMap[email]?.isNotBlank() == true) permissionsMap[email]!!
-            else if (existing?.permissions?.isNotBlank() == true) existing.permissions
-            else if (resolvedRole == "ADMIN") "materials,questions,announcements,libraries,exams" else ""
+        val defaultSecondaryPerms = "materials,questions,announcements,libraries,exams"
+        val resolvedPermissions = if (email == "admin@medrad.edu.ng") "ALL"
+            else if (permissionsMap[email]?.isNotBlank() == true && permissionsMap[email] != "ALL") permissionsMap[email]!!
+            else if (existing?.permissions?.isNotBlank() == true && existing.permissions != "ALL") existing.permissions
+            else if (resolvedRole == "ADMIN") defaultSecondaryPerms else ""
         val remoteHash = passwordHashes[email] ?: ""
+        val isCurrentUser = existing != null && (existing.id == loggedInUserId || loggedInUserId == -1L && existing.role == "ADMIN")
+        val effectiveAssignedCourses = if (isCurrentUser && existing.assignedCourses.isNotBlank()) existing.assignedCourses else resolvedAssignedCourses
+        val effectiveLevel = if (isCurrentUser && existing.level.isNotBlank()) existing.level else normalizedLevel
+
         if (existing != null) {
           val updated = existing.copy(
             fullName = p.fullName?.ifBlank { existing.fullName } ?: existing.fullName,
             phoneNumber = if (!p.matricNumber.isNullOrBlank()) p.matricNumber else existing.phoneNumber,
             role = resolvedRole,
             adminRole = resolvedAdminRole,
-            assignedCourses = resolvedAssignedCourses,
+            assignedCourses = effectiveAssignedCourses,
             permissions = resolvedPermissions,
             department = p.department ?: existing.department,
             faculty = p.faculty ?: existing.faculty,
-            level = normalizedLevel,
+            level = effectiveLevel,
             isActive = p.isActive,
             isPremium = if (resolvedRole == "ADMIN") true else existing.isPremium,
             passwordHash = if (remoteHash.isNotBlank()) remoteHash else existing.passwordHash
@@ -3078,20 +3102,21 @@ class CloudSyncManager(
     val hasLevelConfig = prefs.contains("sprint_${suffix}_course_id")
     if (!hasLevelConfig) {
       val defaultCourseCode = when (suffix) {
-        "100" -> "BIO 101"
+        "100" -> "RAD 101"
         "300" -> "RAD 301"
         "400" -> "RAD 401"
         "500" -> "RAD 501"
         else -> "ANA 201"
       }
       val defaultTitle = when (suffix) {
-        "100" -> "General Biology & Life Sciences Sprint"
+        "100" -> "Introduction to Radiography Sprint"
         "300" -> "Radiographic Techniques Sprint"
         "400" -> "Radiation Protection & Physics Sprint"
         "500" -> "Clinical Radiography Sprint"
         else -> "Gross Anatomy Sprint"
       }
       return _dailySprintConfig.value.copy(
+        courseId = 0L,
         courseCode = defaultCourseCode,
         title = defaultTitle,
         subtitle = "Level-specific practice for $suffix Level"
@@ -3101,7 +3126,7 @@ class CloudSyncManager(
       badge = prefs.getString("sprint_${suffix}_badge", "DAILY CBT SPRINT") ?: "DAILY CBT SPRINT",
       title = prefs.getString("sprint_${suffix}_title", "Sprint") ?: "Sprint",
       subtitle = prefs.getString("sprint_${suffix}_subtitle", "Practice questions ready for your level") ?: "",
-      courseId = prefs.getLong("sprint_${suffix}_course_id", 1L),
+      courseId = prefs.getLong("sprint_${suffix}_course_id", 0L),
       courseCode = prefs.getString("sprint_${suffix}_course_code", "ANA 201") ?: "ANA 201",
       questionCount = prefs.getInt("sprint_${suffix}_question_count", 0),
       activeStudentsText = prefs.getString("sprint_${suffix}_active_students", "Students active") ?: "Students active",
@@ -3115,27 +3140,28 @@ class CloudSyncManager(
     val hasLevelConfig = prefs.contains("practice_card_${suffix}_course_id")
     if (!hasLevelConfig) {
       val defaultCode = when (suffix) {
-        "100" -> "BIO 101"
+        "100" -> "RAD 101"
         "300" -> "RAD 301"
         "400" -> "RAD 401"
         "500" -> "RAD 501"
         else -> "ANA 201"
       }
       val defaultTitle = when (suffix) {
-        "100" -> "GENERAL BIOLOGY & CELL STRUCTURE"
+        "100" -> "INTRODUCTION TO MEDICAL RADIOGRAPHY"
         "300" -> "RADIOGRAPHIC TECHNIQUES & PROCEDURES"
         "400" -> "RADIATION PROTECTION & DOSIMETRY"
         "500" -> "CLINICAL RADIOGRAPHY & INTERVENTIONAL"
         else -> "GROSS ANATOMY OF UPPER AND LOWER LIMBS"
       }
       return _practiceCardConfig.value.copy(
+        courseId = 0L,
         courseCode = defaultCode,
         courseTitle = defaultTitle
       )
     }
     return PracticeCardConfig(
       isConfigured = prefs.getBoolean("practice_card_${suffix}_is_active", true),
-      courseId = prefs.getLong("practice_card_${suffix}_course_id", 1L),
+      courseId = prefs.getLong("practice_card_${suffix}_course_id", 0L),
       courseCode = prefs.getString("practice_card_${suffix}_course_code", "ANA 201") ?: "ANA 201",
       courseTitle = prefs.getString("practice_card_${suffix}_course_title", "GROSS ANATOMY") ?: "GROSS ANATOMY",
       questionCount = prefs.getInt("practice_card_${suffix}_question_count", 0),
@@ -3148,20 +3174,21 @@ class CloudSyncManager(
     val hasLevelConfig = prefs.contains("mock_card_${suffix}_course_id")
     if (!hasLevelConfig) {
       val defaultCode = when (suffix) {
-        "100" -> "BIO 101"
+        "100" -> "RAD 101"
         "300" -> "RAD 301"
         "400" -> "RAD 401"
         "500" -> "RAD 501"
         else -> "ANA 201"
       }
       val defaultTitle = when (suffix) {
-        "100" -> "BIO 101 Mock Exam"
+        "100" -> "RAD 101 Mock Exam"
         "300" -> "RAD 301 Mock Exam"
         "400" -> "RAD 401 Mock Exam"
         "500" -> "RAD 501 Mock Exam"
         else -> "ANA 201 Mock Exam"
       }
       return _mockCardConfig.value.copy(
+        courseId = 0L,
         courseCode = defaultCode,
         courseTitle = defaultTitle,
         examTitle = defaultTitle,
@@ -3315,10 +3342,7 @@ class CloudSyncManager(
         put("is_active", user.isActive)
       }
 
-      val res = supabaseClient.restPost("profiles", payload.toString(), upsert = true)
-      realtimeManager?.dispatchRealtimeEvent("profiles", if (existingId != null) "UPDATE" else "INSERT", payload)
-
-      // Also authoritatively write to app_config student_user_$email for instant global sync across all devices
+      // 1. Authoritatively write to app_config student_user_$email for instant global sync across all devices
       try {
         val userConfigJson = JSONObject().apply {
           put("id", profileId)
@@ -3349,7 +3373,28 @@ class CloudSyncManager(
         Log.w(tag, "Notice writing user to app_config during broadcastProfile: ${ce.message}")
       }
 
-      Result.success(res.isSuccess)
+      // 2. Synchronize to profiles table (use PATCH for existing profiles to satisfy auth.users foreign key constraint)
+      val res = try {
+        if (existingId != null) {
+          val patchPayload = JSONObject().apply {
+            put("full_name", user.fullName.trim())
+            put("matric_number", user.phoneNumber.trim())
+            put("level", user.level)
+            put("department", user.department)
+            put("faculty", user.faculty)
+            put("app_role", if (user.role.equals("ADMIN", ignoreCase = true)) "admin" else "student")
+            put("is_active", user.isActive)
+          }
+          supabaseClient.restPatch("profiles?email=eq.$email", patchPayload.toString())
+        } else {
+          supabaseClient.restPost("profiles", payload.toString(), upsert = true)
+        }
+      } catch (pe: Exception) {
+        Result.failure(pe)
+      }
+      realtimeManager?.dispatchRealtimeEvent("profiles", if (existingId != null) "UPDATE" else "INSERT", payload)
+
+      Result.success(true)
     } catch (e: Exception) {
       Log.e(tag, "broadcastProfile error: ${e.message}", e)
       Result.failure(e)

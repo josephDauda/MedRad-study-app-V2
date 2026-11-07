@@ -394,16 +394,32 @@ class ExampleRobolectricTest {
   }
 
   @Test
-  fun `TEST H - Login with seeded student credentials succeeds and assigns STUDENT role`() = kotlinx.coroutines.runBlocking {
+  fun `TEST H - Login with student credentials succeeds and assigns STUDENT role`() = kotlinx.coroutines.runBlocking {
     val context = ApplicationProvider.getApplicationContext<Context>()
     val container = com.example.data.MedradAppContainer.getInstance(context)
     val authRepo = container.authRepository
 
-    val result = authRepo.login("student@medrad.edu.ng", "Student123!")
+    val testUser = com.example.data.local.entity.UserEntity(
+      id = 99991L,
+      fullName = "Test Scholar",
+      email = "scholar.test@medrad.edu.ng",
+      phoneNumber = "+2348000000005",
+      passwordHash = com.example.data.util.PasswordSecurity.hashPassword("Student123!"),
+      role = "STUDENT",
+      university = "University of Maiduguri",
+      faculty = "College of Medical Sciences",
+      department = "Medical Radiography",
+      level = "200 Level",
+      semester = "First Semester"
+    )
+    container.database.userDao().insertUser(testUser)
+
+    val result = authRepo.login("scholar.test@medrad.edu.ng", "Student123!")
     org.junit.Assert.assertTrue("Student login must succeed", result.isSuccess)
     val student = result.getOrThrow()
-    assertEquals("student@medrad.edu.ng", student.email)
+    assertEquals("scholar.test@medrad.edu.ng", student.email)
     assertEquals("STUDENT", student.role)
+    container.database.userDao().deleteUser(student)
   }
 
   @Test
@@ -412,9 +428,9 @@ class ExampleRobolectricTest {
     val container = com.example.data.MedradAppContainer.getInstance(context)
     val authRepo = container.authRepository
 
-    val newEmail = "test_radiographer_${System.currentTimeMillis()}@medrad.edu.ng"
+    val newEmail = "test_robolectric_${System.currentTimeMillis()}@medrad.edu.ng"
     val result = authRepo.register(
-      fullName = "Fatima Bello",
+      fullName = "Robolectric Candidate",
       email = newEmail,
       phoneNumber = "+2348012345678",
       password = "SecurePassword123!",
@@ -428,7 +444,7 @@ class ExampleRobolectricTest {
     org.junit.Assert.assertTrue("Registration must succeed even if cloud confirmation is pending", result.isSuccess)
     val registered = result.getOrThrow()
     assertEquals(newEmail, registered.email)
-    assertEquals("Fatima Bello", registered.fullName)
+    assertEquals("Robolectric Candidate", registered.fullName)
     assertEquals("STUDENT", registered.role)
 
     // Verify existing session check keeps the registered user logged in
@@ -436,6 +452,7 @@ class ExampleRobolectricTest {
     val sessionUser = authRepo.currentUser.first()
     org.junit.Assert.assertNotNull("Session must persist across app starts", sessionUser)
     assertEquals(registered.id, sessionUser?.id)
+    container.database.userDao().deleteUser(registered)
   }
 
   @Test
@@ -992,6 +1009,7 @@ class ExampleRobolectricTest {
       sessionId = "Session 2"
     )
     org.junit.Assert.assertNull("Session 2 has not been attempted yet, so new attempt is permitted", existingAttemptSession2)
+    container.database.userDao().deleteUser(candidate)
   }
 
   @Test
@@ -1312,6 +1330,73 @@ class ExampleRobolectricTest {
 
     // Must still be 1 (duplicate within 15 seconds dropped)
     assertEquals("Duplicate event must be dropped by sliding-window deduplication", 1, receivedEvents.size)
+  }
+
+  @Test
+  fun `TEST AI - Course CBT Question Bank launches all available questions instead of limiting to 15`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val container = com.example.data.MedradAppContainer.getInstance(context)
+
+    val course = com.example.data.local.entity.CourseEntity(
+      id = 404L,
+      departmentId = 1L,
+      code = "RAD 404",
+      title = "SPECIALIZED RADIOGRAPHIC PROCEDURES",
+      level = "400 Level",
+      semester = "First Semester"
+    )
+    container.database.academicDao().insertCourse(course)
+
+    val createdQuestions = mutableListOf<com.example.data.local.entity.QuestionEntity>()
+    try {
+      // Insert 20 questions for course 404
+      for (i in 1..20) {
+        val q = com.example.data.local.entity.QuestionEntity(
+          courseId = 404L,
+          topicId = 1L,
+          questionText = "Question $i for RAD 404",
+          optionA = "Option A",
+          optionB = "Option B",
+          optionC = "Option C",
+          optionD = "Option D",
+          correctAnswer = "A",
+          explanation = "Explanation $i",
+          difficulty = "Medium",
+          isPremium = false,
+          isPublished = true,
+          isDemo = false
+        )
+        val qId = container.database.questionDao().insertQuestion(q)
+        createdQuestions.add(q.copy(id = qId))
+      }
+
+      val studentUser = com.example.data.local.entity.UserEntity(
+        fullName = "Tukur Sani",
+        email = "tukur.sani@medrad.edu.ng",
+        phoneNumber = "08099887766",
+        university = "University of Maiduguri",
+        faculty = "College of Medical Sciences",
+        department = "Medical Radiography",
+        level = "400 Level",
+        semester = "First Semester",
+        role = "STUDENT",
+        passwordHash = "hash123",
+        isPremium = true
+      )
+
+      // 1. Direct repository check with limit = 0 (all available)
+      val allQuestions = container.cbtRepository.getPracticeQuestions(404L, limit = 0)
+      assertEquals("limit = 0 in CbtRepository must return all 20 questions", 20, allQuestions.size)
+
+      // 2. Direct repository check with standard limit = 15
+      val limitedQuestions = container.cbtRepository.getPracticeQuestions(404L, limit = 15)
+      assertEquals("standard limit = 15 must return 15 questions", 15, limitedQuestions.size)
+    } finally {
+      for (q in createdQuestions) {
+        container.database.questionDao().deleteQuestion(q)
+      }
+      container.database.academicDao().deleteCourse(course)
+    }
   }
 }
 

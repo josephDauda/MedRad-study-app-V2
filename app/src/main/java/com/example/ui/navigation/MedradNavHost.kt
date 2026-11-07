@@ -156,7 +156,9 @@ fun MedradNavHost(
   val currentUser by authViewModel.currentUser.collectAsState()
   val isSessionChecked by authViewModel.isSessionChecked.collectAsState()
 
-  var currentRoute by rememberSaveable { mutableStateOf(ScreenRoute.WELCOME) }
+  var currentRoute by rememberSaveable {
+    mutableStateOf(if (container.authRepository.hasSavedSession()) ScreenRoute.DASHBOARD else ScreenRoute.WELCOME)
+  }
   var currentAttemptId by rememberSaveable { mutableLongStateOf(0L) }
   val backStack = rememberSaveable(
     saver = Saver(
@@ -368,8 +370,14 @@ fun MedradNavHost(
                   academicRepository = container.academicRepository,
                   cloudSyncManager = container.cloudSyncManager,
                   onNavigateBack = { popBackStack() },
-                  onStartCoursePractice = { courseId, code, title ->
-                    cbtViewModel.startPractice(courseId, user, customTitle = title, customCode = code)
+                  onStartCoursePractice = { courseId, code, title, fetchAllAvailable ->
+                    cbtViewModel.startPractice(
+                      courseId = courseId,
+                      user = user,
+                      customTitle = title,
+                      customCode = code,
+                      fetchAllAvailable = fetchAllAvailable
+                    )
                     navigateTo(ScreenRoute.CBT_SESSION)
                   }
                 )
@@ -395,7 +403,8 @@ fun MedradNavHost(
                     currentAttemptId = attemptId
                     navigateTo(ScreenRoute.RESULTS)
                   },
-                  onNavigateToAbout = { navigateTo(ScreenRoute.ABOUT) }
+                  onNavigateToAbout = { navigateTo(ScreenRoute.ABOUT) },
+                  onNavigateToAdmin = { navigateTo(ScreenRoute.ADMIN) }
                 )
                 ScreenRoute.SUBSCRIPTION -> SubscriptionScreen(
                   user = user,

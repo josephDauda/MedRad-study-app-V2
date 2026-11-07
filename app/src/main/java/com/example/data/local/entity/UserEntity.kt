@@ -16,8 +16,8 @@ data class UserEntity(
   val phoneNumber: String,
   val passwordHash: String,
   val role: String, // "STUDENT" or "ADMIN"
-  val adminRole: String = "PRIMARY", // "PRIMARY" or "SECONDARY"
-  val permissions: String = "ALL", // Comma-separated: "materials,questions,announcements,libraries,exams" or "ALL"
+  val adminRole: String = "", // "PRIMARY" or "SECONDARY"
+  val permissions: String = "", // Comma-separated: "materials,questions,announcements,libraries,exams" or "ALL"
   val isActive: Boolean = true,
   val assignedCourses: String = "", // e.g. "RAD 101" or empty for unrestricted
   val university: String,

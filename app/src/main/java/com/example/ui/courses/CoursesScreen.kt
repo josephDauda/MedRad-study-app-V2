@@ -112,7 +112,7 @@ fun CoursesScreen(
   academicRepository: AcademicRepository,
   cloudSyncManager: com.example.data.sync.CloudSyncManager? = null,
   onNavigateBack: () -> Unit,
-  onStartCoursePractice: (courseId: Long, code: String, title: String) -> Unit
+  onStartCoursePractice: (courseId: Long, code: String, title: String, fetchAllAvailable: Boolean) -> Unit
 ) {
   val context = LocalContext.current
   val coroutineScope = rememberCoroutineScope()
@@ -634,7 +634,7 @@ fun CoursesScreen(
                     )
                     Spacer(modifier = Modifier.height(14.dp))
                     Button(
-                      onClick = { onStartCoursePractice(currentCourse.id, currentCourse.code, currentCourse.title) },
+                      onClick = { onStartCoursePractice(currentCourse.id, currentCourse.code, currentCourse.title, true) },
                       modifier = Modifier.fillMaxWidth().height(46.dp),
                       colors = ButtonDefaults.buttonColors(
                         containerColor = MaterialTheme.colorScheme.primary,
@@ -715,7 +715,7 @@ fun CoursesScreen(
                           color = ProfessionalBlue
                         )
                         OutlinedButton(
-                          onClick = { onStartCoursePractice(currentCourse.id, currentCourse.code, exam.title) },
+                          onClick = { onStartCoursePractice(currentCourse.id, currentCourse.code, exam.title, false) },
                           shape = RoundedCornerShape(8.dp)
                         ) {
                           Text("Take Quiz")

@@ -369,7 +369,8 @@ class CbtViewModel(
     questionCount: Int = 15,
     customTitle: String? = null,
     customCode: String? = null,
-    specificQuestionIds: List<Long> = emptyList()
+    specificQuestionIds: List<Long> = emptyList(),
+    fetchAllAvailable: Boolean = false
   ) {
     viewModelScope.launch {
       _sessionState.value = CbtSessionState(isLoading = true)
@@ -386,22 +387,25 @@ class CbtViewModel(
       val allCourses = academicRepository?.getCoursesList() ?: emptyList()
       val levelMatchingCourse = allCourses.firstOrNull { LevelClassifier.matchesUserLevel(user, it.code, it.level) }
 
-      val rawCourse = academicRepository?.getCourseById(courseId)
-        ?: if (!customCode.isNullOrBlank()) academicRepository?.getCourseByCode(customCode) else null
-
-      val effectiveCourse = if (rawCourse != null && LevelClassifier.matchesUserLevel(user, rawCourse.code, rawCourse.level)) {
-        rawCourse
+      val rawCourse = if (!customCode.isNullOrBlank()) {
+        academicRepository?.getCourseByCode(customCode) ?: academicRepository?.getCourseById(courseId)
       } else {
-        levelMatchingCourse ?: rawCourse
+        academicRepository?.getCourseById(courseId)
       }
 
+      val effectiveCourse = rawCourse ?: levelMatchingCourse
+
       val effectiveCourseId = effectiveCourse?.id ?: courseId
-      val code = if (!customCode.isNullOrBlank() && !customCode.contains(courseId.toString()) && LevelClassifier.matchesUserLevel(user, customCode, null)) {
+      val code = if (fetchAllAvailable && !customCode.isNullOrBlank()) {
+        customCode
+      } else if (!customCode.isNullOrBlank() && !customCode.contains(courseId.toString())) {
         customCode
       } else {
         effectiveCourse?.code ?: "${user.level} CBT"
       }
-      val title = if (!customTitle.isNullOrBlank() && !customTitle.contains(courseId.toString()) && (effectiveCourse == null || LevelClassifier.matchesUserLevel(user, customTitle, null))) {
+      val title = if (fetchAllAvailable && !customTitle.isNullOrBlank()) {
+        customTitle
+      } else if (!customTitle.isNullOrBlank() && !customTitle.contains(courseId.toString())) {
         customTitle
       } else {
         effectiveCourse?.title ?: "${user.level} Practice Session"
@@ -412,34 +416,43 @@ class CbtViewModel(
         cloudSyncManager?.pullQuestions(effectiveCourseId)
       } catch (_: Exception) {}
 
+      val effectiveLimit = if (fetchAllAvailable) 0 else questionCount
+      val courseLevel = effectiveCourse?.let { it.level.ifBlank { LevelClassifier.getLevelFromCourseCode(it.code) } }
+      val effectiveLevelFilter = if (fetchAllAvailable) null else (courseLevel ?: user.level)
+
       var questions = if (specificQuestionIds.isNotEmpty()) {
         val specific = cbtRepository.getQuestionsByIds(specificQuestionIds)
-        if (specific.isNotEmpty()) specific else cbtRepository.getPracticeQuestions(effectiveCourseId, questionCount, user.level)
+        if (specific.isNotEmpty()) specific else cbtRepository.getPracticeQuestions(effectiveCourseId, effectiveLimit, effectiveLevelFilter)
       } else {
-        cbtRepository.getPracticeQuestions(effectiveCourseId, questionCount, user.level)
+        cbtRepository.getPracticeQuestions(effectiveCourseId, effectiveLimit, effectiveLevelFilter)
       }
 
       if (questions.isEmpty()) {
         val isGeneral = effectiveCourseId == 0L || effectiveCourseId == 9999L
         val fallback = cbtRepository.getExamQuestions(
           courseId = effectiveCourseId,
-          totalQuestions = questionCount,
+          totalQuestions = if (fetchAllAvailable) 100 else questionCount,
           allowDepartmentalFallback = isGeneral,
-          studentLevel = user.level
+          studentLevel = effectiveLevelFilter
         )
         val levelFiltered = fallback.filter { q ->
           val matchesCourse = if (effectiveCourseId > 0 && !isGeneral) q.courseId == effectiveCourseId else true
           val parentCourse = academicRepository?.getCourseById(q.courseId)
-          matchesCourse && LevelClassifier.matchesUserLevel(user, parentCourse?.code, parentCourse?.level)
+          if (fetchAllAvailable) {
+            matchesCourse
+          } else {
+            matchesCourse && LevelClassifier.matchesUserLevel(user, parentCourse?.code, parentCourse?.level)
+          }
         }
         questions = if (levelFiltered.isNotEmpty()) {
           levelFiltered
         } else if (isGeneral) {
           val allPublished = academicRepository?.getAllQuestionsList()?.filter { it.isPublished } ?: emptyList()
-          allPublished.filter { q ->
+          val filtered = allPublished.filter { q ->
             val parentCourse = academicRepository?.getCourseById(q.courseId)
             LevelClassifier.matchesUserLevel(user, parentCourse?.code, parentCourse?.level)
-          }.take(questionCount)
+          }
+          if (fetchAllAvailable) filtered else filtered.take(questionCount)
         } else {
           emptyList()
         }
@@ -476,11 +489,7 @@ class CbtViewModel(
       val allCourses = academicRepository?.getCoursesList() ?: emptyList()
       val levelMatchingCourse = allCourses.firstOrNull { LevelClassifier.matchesUserLevel(user, it.code, it.level) }
       val rawCourse = academicRepository?.getCourseById(exam.courseId)
-      val effectiveCourse = if (rawCourse != null && LevelClassifier.matchesUserLevel(user, rawCourse.code, rawCourse.level)) {
-        rawCourse
-      } else {
-        levelMatchingCourse ?: rawCourse
-      }
+      val effectiveCourse = rawCourse ?: levelMatchingCourse
       val effectiveExamCourseId = effectiveCourse?.id ?: exam.courseId
 
       // 1. Pull latest questions, exams and configurations from cloud and flush pending submissions
@@ -501,7 +510,7 @@ class CbtViewModel(
       val title = effectiveCourse?.title ?: mockConfig.courseTitle.ifBlank { "${user.level} Mock Examination" }
       val displayExamTitle = if (mockConfig.isConfigured && mockConfig.examTitle.isNotBlank()) {
         mockConfig.examTitle
-      } else if (exam.title.isNotBlank() && LevelClassifier.matchesUserLevel(user, exam.title, null)) {
+      } else if (exam.title.isNotBlank()) {
         exam.title
       } else {
         "$code — $title Mock Exam"
@@ -1322,8 +1331,12 @@ class AdminViewModel(
       val courseCode = course?.code ?: "ANA 201"
       val courseTitle = course?.title ?: "GROSS ANATOMY OF UPPER AND LOWER LIMBS"
 
+      val courseLevel = course?.level?.takeIf { it.isNotBlank() }
+        ?: com.example.data.util.LevelClassifier.getLevelFromCourseCode(courseCode)
+        ?: "200 Level"
+
       if (publishTarget == "DAILY_SPRINT" || publishTarget == "ALL_SECTIONS") {
-        val curSprint = dailySprintConfig.value
+        val curSprint = getDailySprintForLevel(courseLevel)
         val baseIds = if (curSprint.courseId == courseId) curSprint.questionIds else emptyList()
         val updatedIds = (baseIds + id).distinct()
         val updatedSprint = curSprint.copy(
@@ -1334,11 +1347,12 @@ class AdminViewModel(
           questionCount = updatedIds.size,
           questionIds = updatedIds
         )
+        cloudSyncManager?.updateDailySprintConfigForLevel(courseLevel, updatedSprint)
         cloudSyncManager?.updateDailySprintConfig(updatedSprint)
       }
 
       if (publishTarget == "PRACTICE_CARD" || publishTarget == "ALL_SECTIONS") {
-        val curPractice = practiceCardConfig.value
+        val curPractice = getPracticeCardForLevel(courseLevel)
         val baseIds = if (curPractice.courseId == courseId) curPractice.questionIds else emptyList()
         val updatedIds = (baseIds + id).distinct()
         val updatedPractice = curPractice.copy(
@@ -1349,11 +1363,12 @@ class AdminViewModel(
           questionCount = updatedIds.size,
           questionIds = updatedIds
         )
+        cloudSyncManager?.updatePracticeCardConfigForLevel(courseLevel, updatedPractice)
         cloudSyncManager?.updatePracticeCardConfig(updatedPractice)
       }
 
       if (publishTarget == "MOCK_EXAM" || publishTarget == "ALL_SECTIONS") {
-        val curMock = mockCardConfig.value
+        val curMock = getMockCardForLevel(courseLevel)
         val baseIds = if (curMock.courseId == courseId) curMock.questionIds else emptyList()
         val updatedIds = (baseIds + id).distinct()
         val updatedMock = curMock.copy(
@@ -1366,6 +1381,7 @@ class AdminViewModel(
           durationMinutes = 30,
           questionIds = updatedIds
         )
+        cloudSyncManager?.updateMockCardConfigForLevel(courseLevel, updatedMock)
         cloudSyncManager?.updateMockCardConfig(updatedMock)
       }
 
@@ -1564,12 +1580,12 @@ class AdminViewModel(
     onResult: (Boolean, String?) -> Unit
   ) {
     viewModelScope.launch {
-      val target = adminRepository.getAdminById(adminId)
       val res = adminRepository.removeAdmin(remover, adminId)
       res.fold(
         onSuccess = {
-          if (target != null) {
-            cloudSyncManager?.deleteProfileCloud(target.email)
+          val demoted = adminRepository.getUserById(adminId)
+          if (demoted != null) {
+            cloudSyncManager?.broadcastProfile(demoted)
           }
           loadStats()
           onResult(true, null)

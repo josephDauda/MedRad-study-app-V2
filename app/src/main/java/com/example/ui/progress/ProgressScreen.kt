@@ -133,7 +133,8 @@ fun ProgressScreen(
   onNavigateBack: () -> Unit,
   onPracticeCourse: (courseId: Long) -> Unit,
   onNavigateToResults: (attemptId: Long) -> Unit,
-  onNavigateToAbout: () -> Unit = {}
+  onNavigateToAbout: () -> Unit = {},
+  onNavigateToAdmin: (() -> Unit)? = null
 ) {
   val coroutineScope = rememberCoroutineScope()
   val isSyncing by (cloudSyncManager?.isSyncing ?: remember { MutableStateFlow(false) }).collectAsState()
@@ -387,6 +388,23 @@ fun ProgressScreen(
             Icon(Icons.Default.Edit, contentDescription = null, modifier = Modifier.size(16.dp))
             Spacer(modifier = Modifier.width(6.dp))
             Text("Edit Profile Details", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.SemiBold))
+          }
+
+          if (user.role == "ADMIN" && onNavigateToAdmin != null) {
+            Spacer(modifier = Modifier.height(8.dp))
+            Button(
+              onClick = onNavigateToAdmin,
+              shape = RoundedCornerShape(12.dp),
+              colors = ButtonDefaults.buttonColors(
+                containerColor = MaterialTheme.colorScheme.primary,
+                contentColor = MaterialTheme.colorScheme.onPrimary
+              ),
+              modifier = Modifier.testTag("admin_console_profile_button")
+            ) {
+              Icon(Icons.Default.Security, contentDescription = null, modifier = Modifier.size(16.dp))
+              Spacer(modifier = Modifier.width(6.dp))
+              Text("Administrator Management Console", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold))
+            }
           }
         }
       }
@@ -784,7 +802,8 @@ fun ProgressScreen(
       user = user,
       onDismiss = { showEditProfileDialog = false },
       onSave = { newName, newPhone, newLevel ->
-        authViewModel.updateProfile(user.id, newName, newPhone, newLevel) { success, _ ->
+        val normalized = com.example.data.util.LevelClassifier.normalizeLevel(newLevel)
+        authViewModel.updateProfile(user.id, newName, newPhone, normalized) { success, _ ->
           if (success) {
             userProfilePreferences.setCustomDisplayName(newName)
             authViewModel.refreshUser()
@@ -793,7 +812,8 @@ fun ProgressScreen(
                 user.copy(
                   fullName = newName,
                   phoneNumber = newPhone,
-                  level = com.example.data.util.LevelClassifier.normalizeLevel(newLevel)
+                  level = normalized,
+                  assignedCourses = if (user.role == "ADMIN") normalized else user.assignedCourses
                 )
               )
             }

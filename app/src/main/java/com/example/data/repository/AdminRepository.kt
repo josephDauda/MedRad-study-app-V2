@@ -232,7 +232,7 @@ class AdminRepository(
   ): Result<Long> = withContext(Dispatchers.IO) {
     try {
       // Backend security rule: Only Primary Admin can add secondary admins
-      val isPrimary = creator.role == "ADMIN" && (creator.adminRole.equals("PRIMARY", ignoreCase = true) || creator.email.equals("admin@medrad.edu.ng", ignoreCase = true) || creator.adminRole.isBlank())
+      val isPrimary = creator.role == "ADMIN" && (creator.email.equals("admin@medrad.edu.ng", ignoreCase = true) || creator.adminRole.equals("PRIMARY", ignoreCase = true))
       if (!isPrimary) {
         return@withContext Result.failure(SecurityException("Unauthorized: Only Primary Admin can create secondary admin accounts."))
       }
@@ -297,7 +297,7 @@ class AdminRepository(
     isActive: Boolean
   ): Result<Boolean> = withContext(Dispatchers.IO) {
     try {
-      val isPrimary = modifier.role == "ADMIN" && (modifier.adminRole.equals("PRIMARY", ignoreCase = true) || modifier.email.equals("admin@medrad.edu.ng", ignoreCase = true) || modifier.adminRole.isBlank())
+      val isPrimary = modifier.role == "ADMIN" && (modifier.email.equals("admin@medrad.edu.ng", ignoreCase = true) || modifier.adminRole.equals("PRIMARY", ignoreCase = true))
       if (!isPrimary) {
         return@withContext Result.failure(SecurityException("Unauthorized: Only Primary Admin can modify admin permissions."))
       }
@@ -329,7 +329,7 @@ class AdminRepository(
     adminId: Long
   ): Result<Boolean> = withContext(Dispatchers.IO) {
     try {
-      val isPrimary = remover.role == "ADMIN" && (remover.adminRole.equals("PRIMARY", ignoreCase = true) || remover.email.equals("admin@medrad.edu.ng", ignoreCase = true) || remover.adminRole.isBlank())
+      val isPrimary = remover.role == "ADMIN" && (remover.email.equals("admin@medrad.edu.ng", ignoreCase = true) || remover.adminRole.equals("PRIMARY", ignoreCase = true))
       if (!isPrimary) {
         return@withContext Result.failure(SecurityException("Unauthorized: Only Primary Admin can remove admins."))
       }
@@ -341,11 +341,25 @@ class AdminRepository(
       val target = userDao.getUserById(adminId)
         ?: return@withContext Result.failure(IllegalArgumentException("Admin not found."))
 
-      if (target.adminRole == "PRIMARY" || target.email.equals("admin@medrad.edu.ng", ignoreCase = true)) {
+      if (target.email.equals("admin@medrad.edu.ng", ignoreCase = true) || target.adminRole == "PRIMARY") {
         return@withContext Result.failure(IllegalStateException("Cannot delete a Primary Admin account."))
       }
 
-      userDao.deleteUser(target)
+      // Do NOT delete user from database: demote them back to student in their appropriate academic level
+      val studentLevel = if (target.level.contains("Level", ignoreCase = true) && !target.level.contains("All", ignoreCase = true)) {
+        target.level
+      } else {
+        "100 Level"
+      }
+      val demoted = target.copy(
+        role = "STUDENT",
+        adminRole = "",
+        permissions = "",
+        assignedCourses = "",
+        level = studentLevel,
+        semester = if (target.semester == "Academic Staff" || target.semester.isBlank()) "Full Session" else target.semester
+      )
+      userDao.updateUser(demoted)
       Result.success(true)
     } catch (e: Exception) {
       Result.failure(e)
@@ -354,14 +368,14 @@ class AdminRepository(
 
   fun canManageCourse(admin: UserEntity, courseCode: String): Boolean {
     if (admin.role != "ADMIN") return false
-    if (admin.adminRole == "PRIMARY") return true
+    if (admin.email.equals("admin@medrad.edu.ng", ignoreCase = true) || admin.adminRole == "PRIMARY") return true
     if (admin.assignedCourses.isBlank()) return true
     return admin.assignedCourses.split(",").any { it.trim().equals(courseCode.trim(), ignoreCase = true) }
   }
 
   fun hasPermission(admin: UserEntity, permissionKey: String): Boolean {
     if (admin.role != "ADMIN") return false
-    if (admin.adminRole == "PRIMARY") return true
+    if (admin.email.equals("admin@medrad.edu.ng", ignoreCase = true) || admin.adminRole == "PRIMARY") return true
     if (admin.permissions.equals("ALL", ignoreCase = true)) return true
     return admin.permissions.split(",").any { it.trim().equals(permissionKey.trim(), ignoreCase = true) }
   }
@@ -369,5 +383,6 @@ class AdminRepository(
   fun getAllStudents(): Flow<List<UserEntity>> = userDao.getAllStudents()
   fun getAllSubscriptions(): Flow<List<SubscriptionEntity>> = subscriptionDao.getAllSubscriptions()
   suspend fun getAdminById(id: Long): UserEntity? = userDao.getUserById(id)
+  suspend fun getUserById(id: Long): UserEntity? = userDao.getUserById(id)
   fun getAllExamAttempts(): Flow<List<ExamAttemptEntity>> = examDao.getAllAttempts()
 }
