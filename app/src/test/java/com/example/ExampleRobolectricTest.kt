@@ -1398,6 +1398,75 @@ class ExampleRobolectricTest {
       container.database.academicDao().deleteCourse(course)
     }
   }
+
+  @Test
+  fun `TEST - Persistent login session survives app restart and restores authenticated account`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val container = com.example.data.MedradAppContainer.getInstance(context)
+    val authRepo = container.authRepository
+
+    val testEmail = "test_persistent_scholar_${System.currentTimeMillis()}@medrad.edu.ng"
+    val regResult = authRepo.register(
+      fullName = "Persistent Radiographer",
+      email = testEmail,
+      phoneNumber = "+2348100000000",
+      password = "PersistentPassword2026!",
+      university = "University of Maiduguri",
+      faculty = "College of Medical Sciences",
+      department = "Medical Radiography",
+      level = "300 Level",
+      semester = "Full Session"
+    )
+    org.junit.Assert.assertTrue("Registration must succeed", regResult.isSuccess)
+    val registeredUser = regResult.getOrThrow()
+
+    // Verify session is marked saved
+    org.junit.Assert.assertTrue("hasSavedSession must be true after login/registration", authRepo.hasSavedSession())
+
+    // Simulate app process restart: checkExistingSession() restores the user automatically
+    authRepo.checkExistingSession()
+    val restoredUser = authRepo.currentUser.first()
+    org.junit.Assert.assertNotNull("Restored user must not be null after app restart", restoredUser)
+    assertEquals(testEmail, restoredUser?.email)
+    assertEquals("300 Level", restoredUser?.level)
+
+    // Clean up
+    container.database.userDao().deleteUser(registeredUser)
+    authRepo.logout()
+  }
+
+  @Test
+  fun `TEST - Immediate account revocation when user account is deleted or inactive`() = kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val container = com.example.data.MedradAppContainer.getInstance(context)
+    val authRepo = container.authRepository
+
+    val revokedEmail = "test_revoked_scholar_${System.currentTimeMillis()}@medrad.edu.ng"
+    val regResult = authRepo.register(
+      fullName = "Revoked Candidate",
+      email = revokedEmail,
+      phoneNumber = "+2348199999999",
+      password = "RevokedPassword2026!",
+      university = "University of Maiduguri",
+      faculty = "College of Medical Sciences",
+      department = "Medical Radiography",
+      level = "200 Level",
+      semester = "Full Session"
+    )
+    val candidate = regResult.getOrThrow()
+
+    // Simulate administrator deactivating the account in local database
+    container.database.userDao().updateUser(candidate.copy(isActive = false))
+
+    // Re-check session on device
+    authRepo.checkExistingSession()
+    val activeUser = authRepo.currentUser.first()
+    org.junit.Assert.assertNull("Deactivated or deleted user must have active session immediately revoked", activeUser)
+    org.junit.Assert.assertFalse("hasSavedSession must be false after revocation", authRepo.hasSavedSession())
+
+    // Clean up
+    container.database.userDao().deleteUser(candidate)
+  }
 }
 
 

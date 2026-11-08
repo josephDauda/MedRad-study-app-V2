@@ -930,68 +930,74 @@ class CloudSyncManager(
         emptyList()
       }
 
-      // 2. Authoritatively fetch student accounts registered in app_config
-      val configRes = supabaseClient.restGet("app_config?key=like.student_user_*&select=*")
+      // 2. Authoritatively fetch student and admin accounts registered in app_config
+      val configRes = supabaseClient.restGet("app_config?key=like.student_user_%25&select=*")
+      var cfgJson = if (configRes.isSuccess) configRes.getOrNull() ?: "[]" else "[]"
+      if (cfgJson == "[]" || !configRes.isSuccess) {
+        val fallbackRes = supabaseClient.restGet("app_config?select=*")
+        if (fallbackRes.isSuccess) {
+          cfgJson = fallbackRes.getOrNull() ?: "[]"
+        }
+      }
+
       val configList = mutableListOf<SupabaseProfile>()
       val passwordHashes = mutableMapOf<String, String>()
       val adminRolesMap = mutableMapOf<String, String>()
       val assignedCoursesMap = mutableMapOf<String, String>()
       val permissionsMap = mutableMapOf<String, String>()
 
-      if (configRes.isSuccess) {
-        val cfgJson = configRes.getOrNull() ?: "[]"
-        try {
-          val arr = JSONArray(cfgJson)
-          for (i in 0 until arr.length()) {
-            val row = arr.getJSONObject(i)
-            val valueStr = row.optString("value", "")
-            if (valueStr.isNotBlank() && valueStr.startsWith("{")) {
-              val userObj = JSONObject(valueStr)
-              val sEmail = userObj.optString("email").trim().lowercase()
-              if (sEmail.isNotBlank()) {
-                val sFullName = userObj.optString("full_name", "Student")
-                val sPhone = userObj.optString("phone").ifBlank { userObj.optString("matric_number") }
-                val sLevel = userObj.optString("level", "100 Level")
-                val sDept = userObj.optString("department", "Medical Radiography")
-                val sFaculty = userObj.optString("faculty", "College of Medical Sciences")
-                val sAppRole = userObj.optString("app_role", userObj.optString("role", "student")).lowercase()
-                val sAdminRole = userObj.optString("adminRole", userObj.optString("admin_role", ""))
-                val sAssignedCourses = userObj.optString("assigned_courses", userObj.optString("assignedCourses", ""))
-                val sPermissions = userObj.optString("permissions", "ALL")
-                val sIsActive = userObj.optBoolean("is_active", true)
-                val sId = userObj.optString("id", FlexibleIdHelper.toUuidString(userObj.optLong("created_at", System.currentTimeMillis()), "user"))
-                val sPassHash = userObj.optString("password_hash")
-                if (sPassHash.isNotBlank()) {
-                  passwordHashes[sEmail] = sPassHash
-                }
-                if (sAdminRole.isNotBlank()) {
-                  adminRolesMap[sEmail] = sAdminRole
-                }
-                if (sAssignedCourses.isNotBlank()) {
-                  assignedCoursesMap[sEmail] = sAssignedCourses
-                }
-                if (sPermissions.isNotBlank()) {
-                  permissionsMap[sEmail] = sPermissions
-                }
-                configList.add(
-                  SupabaseProfile(
-                    id = sId,
-                    fullName = sFullName,
-                    email = sEmail,
-                    matricNumber = sPhone.ifBlank { null },
-                    level = sLevel,
-                    department = sDept,
-                    faculty = sFaculty,
-                    appRole = sAppRole,
-                    isActive = sIsActive
-                  )
-                )
+      try {
+        val arr = JSONArray(cfgJson)
+        for (i in 0 until arr.length()) {
+          val row = arr.getJSONObject(i)
+          val key = row.optString("key", "")
+          val valueStr = row.optString("value", "")
+          if (valueStr.isNotBlank() && valueStr.startsWith("{") && (key.startsWith("student_user_") || key.startsWith("admin_user_") || valueStr.contains("\"email\""))) {
+            val userObj = JSONObject(valueStr)
+            val sEmail = userObj.optString("email").trim().lowercase()
+            if (sEmail.isNotBlank()) {
+              val sFullName = userObj.optString("full_name", "Student")
+              val sPhone = userObj.optString("phone").ifBlank { userObj.optString("matric_number") }
+              val sLevel = userObj.optString("level", "100 Level")
+              val sDept = userObj.optString("department", "Medical Radiography")
+              val sFaculty = userObj.optString("faculty", "College of Medical Sciences")
+              val sAppRole = userObj.optString("app_role", userObj.optString("role", "student")).lowercase()
+              val sAdminRole = userObj.optString("adminRole", userObj.optString("admin_role", ""))
+              val sAssignedCourses = userObj.optString("assigned_courses", userObj.optString("assignedCourses", ""))
+              val sPermissions = userObj.optString("permissions", "ALL")
+              val sIsActive = userObj.optBoolean("is_active", true)
+              val sId = userObj.optString("id", FlexibleIdHelper.toUuidString(userObj.optLong("created_at", System.currentTimeMillis()), "user"))
+              val sPassHash = userObj.optString("password_hash")
+              if (sPassHash.isNotBlank()) {
+                passwordHashes[sEmail] = sPassHash
               }
+              if (sAdminRole.isNotBlank()) {
+                adminRolesMap[sEmail] = sAdminRole
+              }
+              if (sAssignedCourses.isNotBlank()) {
+                assignedCoursesMap[sEmail] = sAssignedCourses
+              }
+              if (sPermissions.isNotBlank()) {
+                permissionsMap[sEmail] = sPermissions
+              }
+              configList.add(
+                SupabaseProfile(
+                  id = sId,
+                  fullName = sFullName,
+                  email = sEmail,
+                  matricNumber = sPhone.ifBlank { null },
+                  level = sLevel,
+                  department = sDept,
+                  faculty = sFaculty,
+                  appRole = sAppRole,
+                  isActive = sIsActive
+                )
+              )
             }
           }
-        } catch (e: Exception) {
-          Log.w(tag, "Error parsing app_config student records: ${e.message}")
         }
+      } catch (e: Exception) {
+        Log.w(tag, "Error parsing app_config student records: ${e.message}")
       }
 
       // 3. Merge profiles and app_config records (app_config accounts take priority for student records)
@@ -1007,7 +1013,10 @@ class CloudSyncManager(
           } else {
             val isRemoteAdmin = cp.appRole?.equals("admin", ignoreCase = true) == true ||
                 existing.appRole?.equals("admin", ignoreCase = true) == true ||
-                em == "admin@medrad.edu.ng"
+                em == "admin@medrad.edu.ng" ||
+                em == "princejoe002@gmail.com" ||
+                em == "princejoe.prj@gmail.com" ||
+                em == "jd267904@gmail.com"
             combinedProfiles[em] = existing.copy(
               fullName = cp.fullName?.ifBlank { existing.fullName } ?: existing.fullName,
               level = cp.level?.ifBlank { existing.level } ?: existing.level,
@@ -1023,6 +1032,7 @@ class CloudSyncManager(
 
       val authPrefs = context.getSharedPreferences("medrad_auth_prefs", Context.MODE_PRIVATE)
       val loggedInUserId = authPrefs.getLong("logged_in_user_id", -1L)
+      val loggedInUserEmail = authPrefs.getString("logged_in_user_email", null)?.trim()?.lowercase()
 
       // Purge demo accounts immediately
       combinedProfiles.remove("halima.abubakar@medrad.edu.ng")
@@ -1045,18 +1055,25 @@ class CloudSyncManager(
             database.userDao().deleteUser(localUser)
             continue
           }
-          // Never purge administrators or currently logged in user from local cache
-          if (localUser.id == loggedInUserId ||
-              localEmail == "admin@medrad.edu.ng" ||
+          // Never purge foundational administrators from local cache
+          val isProtectedAdmin = localEmail == "admin@medrad.edu.ng" ||
+              localEmail == "princejoe002@gmail.com" ||
+              localEmail == "princejoe.prj@gmail.com" ||
+              localEmail == "jd267904@gmail.com" ||
               localUser.role.equals("ADMIN", ignoreCase = true) ||
               localUser.adminRole.equals("SECONDARY", ignoreCase = true) ||
-              localUser.adminRole.equals("PRIMARY", ignoreCase = true)) {
-            continue
-          }
+              localUser.adminRole.equals("PRIMARY", ignoreCase = true)
 
-          if (!remoteEmails.contains(localEmail)) {
-            Log.i(tag, "User $localEmail not in remote database. Purging from local database.")
+          val isCurrentLoggedInUser = (localUser.id == loggedInUserId && loggedInUserId != -1L) ||
+              (!loggedInUserEmail.isNullOrBlank() && localEmail == loggedInUserEmail)
+
+          if (!remoteEmails.contains(localEmail) && !isProtectedAdmin) {
+            Log.i(tag, "User $localEmail not in remote database. Administrator deleted account.")
             database.userDao().deleteUser(localUser)
+            if (isCurrentLoggedInUser) {
+              Log.w(tag, "Active user session revoked because account $localEmail was removed from the database.")
+              authPrefs.edit().remove("logged_in_user_id").remove("logged_in_user_email").commit()
+            }
           }
         }
       }
@@ -1068,13 +1085,16 @@ class CloudSyncManager(
         }
         p.id?.let { uuidToEmail[it] = email }
         val existing = database.userDao().getUserByEmail(email)
-        val isExplicitAdmin = email == "admin@medrad.edu.ng" ||
-            p.appRole?.equals("admin", ignoreCase = true) == true ||
-            (adminRolesMap[email]?.isNotBlank() == true && adminRolesMap[email] != "STUDENT") ||
-            existing?.role?.equals("ADMIN", ignoreCase = true) == true ||
+        val isExplicitDemoted = adminRolesMap[email] == "STUDENT" || (existing?.role == "STUDENT" && p.appRole?.equals("student", ignoreCase = true) == true && adminRolesMap[email] != "SECONDARY" && adminRolesMap[email] != "PRIMARY")
+        val isExplicitAdmin = !isExplicitDemoted && (
+            email == "admin@medrad.edu.ng" ||
             email == "princejoe.prj@gmail.com" ||
             email == "jd267904@gmail.com" ||
-            email == "princejoe002@gmail.com"
+            email == "princejoe002@gmail.com" ||
+            p.appRole?.equals("admin", ignoreCase = true) == true ||
+            (adminRolesMap[email]?.isNotBlank() == true && adminRolesMap[email] != "STUDENT") ||
+            existing?.role?.equals("ADMIN", ignoreCase = true) == true
+        )
         val resolvedRole = if (isExplicitAdmin) "ADMIN" else "STUDENT"
         // Only admin@medrad.edu.ng is Primary Admin. All other admins are Secondary Admins.
         val resolvedAdminRole = if (email == "admin@medrad.edu.ng") "PRIMARY"
@@ -1091,7 +1111,11 @@ class CloudSyncManager(
             else if (existing?.permissions?.isNotBlank() == true && existing.permissions != "ALL") existing.permissions
             else if (resolvedRole == "ADMIN") defaultSecondaryPerms else ""
         val remoteHash = passwordHashes[email] ?: ""
-        val isCurrentUser = existing != null && (existing.id == loggedInUserId || loggedInUserId == -1L && existing.role == "ADMIN")
+        val isCurrentUser = existing != null && (
+            (existing.id == loggedInUserId && loggedInUserId != -1L) ||
+            (!loggedInUserEmail.isNullOrBlank() && email == loggedInUserEmail) ||
+            (loggedInUserId == -1L && loggedInUserEmail == null && existing.role == "ADMIN")
+        )
         val effectiveAssignedCourses = if (isCurrentUser && existing.assignedCourses.isNotBlank()) existing.assignedCourses else resolvedAssignedCourses
         val effectiveLevel = if (isCurrentUser && existing.level.isNotBlank()) existing.level else normalizedLevel
 
@@ -1111,6 +1135,9 @@ class CloudSyncManager(
             passwordHash = if (remoteHash.isNotBlank()) remoteHash else existing.passwordHash
           )
           database.userDao().updateUser(updated)
+          if (isCurrentUser) {
+            authPrefs.edit().putLong("logged_in_user_id", updated.id).putString("logged_in_user_email", updated.email).commit()
+          }
         } else {
           val newUser = UserEntity(
             fullName = p.fullName ?: "Student",
@@ -1129,7 +1156,103 @@ class CloudSyncManager(
             semester = "Full Session",
             isPremium = resolvedRole == "ADMIN"
           )
-          database.userDao().insertUser(newUser)
+          val insertedId = database.userDao().insertUser(newUser)
+          if (isCurrentUser) {
+            authPrefs.edit().putLong("logged_in_user_id", insertedId).putString("logged_in_user_email", newUser.email).commit()
+          }
+        }
+      }
+
+      // 6. Authoritative guarantee: Ensure all foundational administrators exist persistently in Room with correct roles
+      val foundationalAdmins = listOf(
+        UserEntity(
+          fullName = "Chief Radiographer / Admin",
+          email = "admin@medrad.edu.ng",
+          phoneNumber = "+2348000000001",
+          passwordHash = passwordHashes["admin@medrad.edu.ng"] ?: com.example.data.util.PasswordSecurity.hashPassword("MedRadAdmin2026!"),
+          role = "ADMIN",
+          adminRole = "PRIMARY",
+          permissions = "ALL",
+          assignedCourses = "All Level Courses",
+          university = "University of Maiduguri",
+          faculty = "College of Medical Sciences",
+          department = "Medical Radiography",
+          level = "Staff / Faculty",
+          semester = "Full Session",
+          isPremium = true,
+          isActive = true
+        ),
+        UserEntity(
+          fullName = "Nurse moses",
+          email = "princejoe002@gmail.com",
+          phoneNumber = "09133322238",
+          passwordHash = passwordHashes["princejoe002@gmail.com"] ?: "",
+          role = "ADMIN",
+          adminRole = "SECONDARY",
+          permissions = permissionsMap["princejoe002@gmail.com"] ?: "materials,questions,libraries,announcements,exams",
+          assignedCourses = assignedCoursesMap["princejoe002@gmail.com"] ?: "100 Level",
+          university = "University of Maiduguri",
+          faculty = "College of Medical Sciences",
+          department = "Medical Radiography",
+          level = "100 Level",
+          semester = "Full Session",
+          isPremium = true,
+          isActive = true
+        ),
+        UserEntity(
+          fullName = "princejoe.x",
+          email = "princejoe.prj@gmail.com",
+          phoneNumber = "09054571862",
+          passwordHash = passwordHashes["princejoe.prj@gmail.com"] ?: "",
+          role = "ADMIN",
+          adminRole = "SECONDARY",
+          permissions = permissionsMap["princejoe.prj@gmail.com"] ?: "materials,questions,libraries,announcements,exams",
+          assignedCourses = assignedCoursesMap["princejoe.prj@gmail.com"] ?: "200 Level",
+          university = "University of Maiduguri",
+          faculty = "College of Medical Sciences",
+          department = "Medical Radiography",
+          level = "200 Level",
+          semester = "Full Session",
+          isPremium = true,
+          isActive = true
+        ),
+        UserEntity(
+          fullName = "Joseph dauda",
+          email = "jd267904@gmail.com",
+          phoneNumber = "0812833756",
+          passwordHash = passwordHashes["jd267904@gmail.com"] ?: "",
+          role = "ADMIN",
+          adminRole = "SECONDARY",
+          permissions = permissionsMap["jd267904@gmail.com"] ?: "materials,questions,libraries,announcements,exams",
+          assignedCourses = assignedCoursesMap["jd267904@gmail.com"] ?: "200 Level",
+          university = "University of Maiduguri",
+          faculty = "College of Medical Sciences",
+          department = "Medical Radiography",
+          level = "200 Level",
+          semester = "Full Session",
+          isPremium = true,
+          isActive = true
+        )
+      )
+
+      for (fa in foundationalAdmins) {
+        val existing = database.userDao().getUserByEmail(fa.email)
+        if (existing == null) {
+          database.userDao().insertUser(fa)
+        } else {
+          val cleanRole = if (fa.email == "admin@medrad.edu.ng") "PRIMARY" else "SECONDARY"
+          database.userDao().updateUser(
+            existing.copy(
+              role = "ADMIN",
+              adminRole = cleanRole,
+              fullName = existing.fullName.ifBlank { fa.fullName },
+              permissions = if (fa.email == "admin@medrad.edu.ng") "ALL" else existing.permissions.ifBlank { fa.permissions },
+              assignedCourses = if (fa.email == "admin@medrad.edu.ng") "All Level Courses" else existing.assignedCourses.ifBlank { fa.assignedCourses },
+              level = existing.level.ifBlank { fa.level },
+              isPremium = true,
+              isActive = existing.isActive
+            )
+          )
         }
       }
       true

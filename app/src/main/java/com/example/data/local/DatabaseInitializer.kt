@@ -431,9 +431,11 @@ object DatabaseInitializer {
       }
 
       // 2. Ensure Default Authenticated Admin & Student Accounts exist if not present
+      // 2. Ensure Default Authenticated Admin & Secondary Admin Accounts exist and are properly configured
       val userDao = database.userDao()
       val adminEmail = "admin@medrad.edu.ng"
-      if (userDao.getUserByEmail(adminEmail) == null) {
+      val existingPrimary = userDao.getUserByEmail(adminEmail)
+      if (existingPrimary == null) {
         userDao.insertUser(
           UserEntity(
             fullName = "Chief Radiographer / Admin",
@@ -443,17 +445,105 @@ object DatabaseInitializer {
             role = "ADMIN",
             adminRole = "PRIMARY",
             permissions = "ALL",
+            assignedCourses = "All Level Courses",
             university = "University of Maiduguri",
             faculty = "College of Medical Sciences",
             department = "Medical Radiography",
             level = "Staff / Faculty",
             semester = "Full Session",
-            isPremium = true
+            isPremium = true,
+            isActive = true
+          )
+        )
+      } else {
+        userDao.updateUser(
+          existingPrimary.copy(
+            role = "ADMIN",
+            adminRole = "PRIMARY",
+            permissions = "ALL",
+            assignedCourses = "All Level Courses",
+            isPremium = true,
+            isActive = true
           )
         )
       }
 
-      // 3. Purge all demo/test accounts from local Room database (keeping only real Supabase accounts & admin@medrad.edu.ng)
+      // 3. Ensure Secondary Administrators (Nurse moses, princejoe.x, Joseph dauda) exist with SECONDARY role
+      val secondaryAdmins = listOf(
+        UserEntity(
+          fullName = "Nurse moses",
+          email = "princejoe002@gmail.com",
+          phoneNumber = "09133322238",
+          passwordHash = PasswordSecurity.hashPassword("MosesNurse2026!"),
+          role = "ADMIN",
+          adminRole = "SECONDARY",
+          permissions = "materials,questions,libraries,announcements,exams",
+          assignedCourses = "100 Level",
+          university = "University of Maiduguri",
+          faculty = "College of Medical Sciences",
+          department = "Medical Radiography",
+          level = "100 Level",
+          semester = "Full Session",
+          isPremium = true,
+          isActive = true
+        ),
+        UserEntity(
+          fullName = "princejoe.x",
+          email = "princejoe.prj@gmail.com",
+          phoneNumber = "09054571862",
+          passwordHash = PasswordSecurity.hashPassword("PrinceJoe2026!"),
+          role = "ADMIN",
+          adminRole = "SECONDARY",
+          permissions = "materials,questions,libraries,announcements,exams",
+          assignedCourses = "200 Level",
+          university = "University of Maiduguri",
+          faculty = "College of Medical Sciences",
+          department = "Medical Radiography",
+          level = "200 Level",
+          semester = "Full Session",
+          isPremium = true,
+          isActive = true
+        ),
+        UserEntity(
+          fullName = "Joseph dauda",
+          email = "jd267904@gmail.com",
+          phoneNumber = "0812833756",
+          passwordHash = PasswordSecurity.hashPassword("JosephD2026!"),
+          role = "ADMIN",
+          adminRole = "SECONDARY",
+          permissions = "materials,questions,libraries,announcements,exams",
+          assignedCourses = "200 Level",
+          university = "University of Maiduguri",
+          faculty = "College of Medical Sciences",
+          department = "Medical Radiography",
+          level = "200 Level",
+          semester = "Full Session",
+          isPremium = true,
+          isActive = true
+        )
+      )
+
+      for (sa in secondaryAdmins) {
+        val existing = userDao.getUserByEmail(sa.email)
+        if (existing == null) {
+          userDao.insertUser(sa)
+        } else {
+          userDao.updateUser(
+            existing.copy(
+              role = "ADMIN",
+              adminRole = "SECONDARY",
+              fullName = existing.fullName.ifBlank { sa.fullName },
+              permissions = existing.permissions.ifBlank { sa.permissions },
+              assignedCourses = existing.assignedCourses.ifBlank { sa.assignedCourses },
+              level = sa.level,
+              isPremium = true,
+              isActive = existing.isActive
+            )
+          )
+        }
+      }
+
+      // 4. Purge all demo/test accounts from local Room database and enforce SECONDARY on any other admin
       try {
         val existingUsers = userDao.getAllUsersList()
         for (u in existingUsers) {
@@ -464,24 +554,6 @@ object DatabaseInitializer {
               email == "halima.abubakar@medrad.edu.ng" ||
               (u.fullName.contains("Fatima Bello", ignoreCase = true) && email.startsWith("test_"))) {
             userDao.deleteUser(u)
-          } else if (email == "princejoe.prj@gmail.com") {
-            userDao.updateUser(
-              u.copy(
-                role = "ADMIN",
-                adminRole = "SECONDARY",
-                assignedCourses = "200 Level",
-                permissions = "materials,questions,libraries,announcements,exams"
-              )
-            )
-          } else if (email == "jd267904@gmail.com") {
-            userDao.updateUser(
-              u.copy(
-                role = "ADMIN",
-                adminRole = "SECONDARY",
-                assignedCourses = "100 Level",
-                permissions = "materials,questions,libraries,announcements,exams"
-              )
-            )
           } else if (u.role.equals("ADMIN", ignoreCase = true) && email != "admin@medrad.edu.ng" && u.adminRole == "PRIMARY") {
             userDao.updateUser(u.copy(adminRole = "SECONDARY"))
           }

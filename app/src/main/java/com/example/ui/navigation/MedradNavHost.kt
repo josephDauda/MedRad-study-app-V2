@@ -95,6 +95,7 @@ import com.example.ui.about.TermsAndPrivacyScreen
 import com.example.ui.admin.AdminDashboardScreen
 import com.example.ui.auth.LoginScreen
 import com.example.ui.auth.RegisterScreen
+import com.example.ui.components.MedicalRadiographyEmblem
 import com.example.ui.cbt.CbtScreen
 import com.example.ui.courses.CoursesScreen
 import com.example.ui.dashboard.DashboardScreen
@@ -218,6 +219,48 @@ fun MedradNavHost(
       backStack.clear()
       currentRoute = ScreenRoute.WELCOME
     }
+  }
+
+  // Graceful session restoration state: prevents flickering or premature redirect to Welcome on cold restart
+  if (!isSessionChecked && container.authRepository.hasSavedSession()) {
+    Surface(
+      modifier = Modifier.fillMaxSize(),
+      color = MaterialTheme.colorScheme.background
+    ) {
+      Box(
+        modifier = Modifier.fillMaxSize(),
+        contentAlignment = Alignment.Center
+      ) {
+        Column(
+          horizontalAlignment = Alignment.CenterHorizontally,
+          verticalArrangement = Arrangement.Center
+        ) {
+          MedicalRadiographyEmblem(
+            modifier = Modifier.size(72.dp),
+            showBorder = true
+          )
+          Spacer(modifier = Modifier.height(16.dp))
+          Text(
+            text = "MedRad Study App",
+            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
+            color = MaterialTheme.colorScheme.onBackground
+          )
+          Spacer(modifier = Modifier.height(6.dp))
+          Text(
+            text = "Restoring authenticated session...",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant
+          )
+          Spacer(modifier = Modifier.height(18.dp))
+          CircularProgressIndicator(
+            modifier = Modifier.size(24.dp),
+            color = MaterialTheme.colorScheme.primary,
+            strokeWidth = 2.5.dp
+          )
+        }
+      }
+    }
+    return
   }
 
   AnimatedContent(

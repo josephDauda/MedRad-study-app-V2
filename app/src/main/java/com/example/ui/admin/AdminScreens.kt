@@ -1819,7 +1819,7 @@ fun AdminRolesView(
           }
         }
       } else {
-        items(admins) { admin ->
+        items(admins, key = { it.email.lowercase() }) { admin ->
           val isTargetPrimary = admin.email.equals("admin@medrad.edu.ng", ignoreCase = true)
         Card(
           modifier = Modifier.fillMaxWidth(),
