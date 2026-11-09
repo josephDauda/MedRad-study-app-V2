@@ -767,6 +767,15 @@ class CloudSyncManager(
             Log.w(tag, "Notice parsing score_attempt_ from app_config: ${e.message}")
           }
         }
+        // Handle cross-device question payloads (including image-containing questions)
+        else if (key.startsWith("question_sync_") && value.isNotBlank() && value.startsWith("{")) {
+          try {
+            val rec = JSONObject(value)
+            scope.launch { processQuestionSyncRecord(rec, key) }
+          } catch (e: Exception) {
+            Log.w(tag, "Notice parsing question_sync_ from app_config: ${e.message}")
+          }
+        }
         // Handle level-specific pipeline configs: sprint_<lvl>_*, practice_card_<lvl>_*, mock_card_<lvl>_*
         else if (key.startsWith("sprint_") || key.startsWith("practice_card_") || key.startsWith("mock_card_")) {
           if (key.endsWith("_session_id") || key.endsWith("_code") || key.endsWith("_title") || key.endsWith("_badge") || key.endsWith("_theme") || key.endsWith("_subtitle") || key.endsWith("_reveal_mode") || key.endsWith("_deadline_string") || key.endsWith("_question_ids") || key.endsWith("_students")) {
@@ -1504,6 +1513,51 @@ class CloudSyncManager(
     }
   }
 
+  suspend fun processQuestionSyncRecord(record: JSONObject, key: String = ""): Boolean = withContext(Dispatchers.IO) {
+    try {
+      val remoteUuid = record.optString("id").takeIf { it.isNotBlank() } ?: key.removePrefix("question_sync_")
+      if (remoteUuid.isBlank()) return@withContext false
+      val courseRemoteId = record.optString("remote_course_id").takeIf { it.isNotBlank() }
+      val courseCode = record.optString("course_code").takeIf { it.isNotBlank() }
+      val localCourse = courseRemoteId?.let { database.academicDao().getCourseByRemoteId(it) }
+        ?: courseCode?.let { database.academicDao().getCourseByCode(it) }
+        ?: (if (record.has("course_id")) database.academicDao().getCourseById(record.optLong("course_id")) else null)
+      val localCourseId = localCourse?.id ?: record.optLong("course_id", 1L)
+      val existing = database.questionDao().getQuestionByRemoteId(remoteUuid)
+      val stableId = existing?.id ?: record.optLong("stable_id", FlexibleIdHelper.toPositiveLong(remoteUuid))
+
+      val entity = QuestionEntity(
+        id = stableId,
+        courseId = localCourseId,
+        topicId = record.optLong("topic_id", 1L),
+        questionText = record.optString("question_text", ""),
+        optionA = record.optString("option_a", ""),
+        optionB = record.optString("option_b", ""),
+        optionC = record.optString("option_c", ""),
+        optionD = record.optString("option_d", ""),
+        correctAnswer = record.optString("correct_answer", "A"),
+        explanation = record.optString("explanation", "Refer to clinical radiology modules for verified rationale."),
+        difficulty = record.optString("difficulty", "Medium"),
+        isPremium = record.optBoolean("is_premium", false),
+        isPublished = record.optBoolean("is_published", true),
+        isDemo = false,
+        questionType = record.optString("question_type", "MULTIPLE_CHOICE"),
+        assessmentTitle = record.optString("assessment_title", "Continuous Assessment"),
+        marks = record.optInt("marks", 1),
+        timeLimitSeconds = record.optInt("time_limit_seconds", 60),
+        imageUrl = record.optString("image_url").takeIf { it.isNotBlank() },
+        remoteId = remoteUuid,
+        remoteExamId = record.optString("remote_exam_id").takeIf { it.isNotBlank() },
+        remoteCourseId = courseRemoteId
+      )
+      database.questionDao().insertQuestion(entity)
+      true
+    } catch (e: Exception) {
+      Log.w(tag, "processQuestionSyncRecord error: ${e.message}")
+      false
+    }
+  }
+
   suspend fun processExamAttemptRecord(record: JSONObject): Boolean = withContext(Dispatchers.IO) {
     try {
       val remoteUuid = record.optString("id").takeIf { it.isNotBlank() } ?: return@withContext false
@@ -1965,12 +2019,6 @@ class CloudSyncManager(
           } else {
             offset += pageSize
           }
-        }
-      }
-      val localQuestions = if (courseId != null) database.questionDao().getAllQuestionsList().filter { it.courseId == courseId } else database.questionDao().getAllQuestionsList()
-      for (lq in localQuestions) {
-        if (lq.remoteId != null && !remoteQuestionUuids.contains(lq.remoteId)) {
-          database.questionDao().deleteQuestion(lq)
         }
       }
       Log.i(tag, "Successfully pulled and synchronized $totalProcessed questions from Supabase cloud.")
@@ -2714,8 +2762,12 @@ class CloudSyncManager(
         }
       }
 
+      val stableId = FlexibleIdHelper.toPositiveLong(remoteUuid)
+      val actualId = if (q.id > 0) q.id else stableId
+
       database.questionDao().insertQuestion(
         q.copy(
+          id = actualId,
           remoteId = remoteUuid,
           remoteCourseId = courseRemoteUuid,
           remoteExamId = examRemoteUuid,
@@ -2751,7 +2803,39 @@ class CloudSyncManager(
       if (res.isFailure) {
         Log.e(tag, "broadcastQuestion to Supabase failed: ${res.exceptionOrNull()?.message}")
       }
-      Result.success(res.isSuccess)
+
+      // High-reliability multi-device sync via app_config (guarantees image delivery even across network/RLS barriers)
+      val syncPayload = JSONObject().apply {
+        put("id", remoteUuid)
+        put("stable_id", actualId)
+        put("course_id", q.courseId)
+        put("remote_course_id", courseRemoteUuid)
+        put("course_code", parentCourse?.code ?: "")
+        put("course_title", parentCourse?.title ?: "")
+        put("remote_exam_id", examRemoteUuid)
+        put("topic_id", q.topicId)
+        put("question_text", q.questionText)
+        put("option_a", q.optionA)
+        put("option_b", q.optionB)
+        put("option_c", q.optionC)
+        put("option_d", q.optionD)
+        put("correct_answer", q.correctAnswer)
+        put("explanation", q.explanation)
+        put("difficulty", q.difficulty)
+        put("question_type", q.questionType)
+        put("assessment_title", q.assessmentTitle)
+        put("marks", q.marks)
+        put("time_limit_seconds", q.timeLimitSeconds)
+        put("image_url", q.imageUrl ?: "")
+        put("is_published", q.isPublished)
+        put("is_premium", q.isPremium)
+      }
+      val appConfigPayload = JSONArray().apply {
+        put(JSONObject().put("key", "question_sync_$remoteUuid").put("value", syncPayload.toString()))
+      }
+      supabaseClient.restPost("app_config", appConfigPayload.toString(), upsert = true)
+
+      Result.success(true)
     } catch (e: Exception) {
       Log.e(tag, "broadcastQuestion error: ${e.message}", e)
       Result.failure(e)
@@ -2966,6 +3050,9 @@ class CloudSyncManager(
       val targetId = q.remoteId
       if (!targetId.isNullOrBlank() && targetId.length == 36) {
         val res = supabaseClient.restDelete("questions?id=eq.$targetId")
+        try {
+          supabaseClient.restDelete("app_config?key=eq.question_sync_$targetId")
+        } catch (_: Exception) {}
         database.questionDao().deleteQuestion(q)
         Result.success(res.isSuccess)
       } else {

@@ -5665,8 +5665,17 @@ fun AdminLiveCloudSyncView(
   // Question Picker Modal for Daily CBT Sprint (strictly filtered by sprintCourseId)
   if (showSprintQuestionPicker) {
     val selectedCourse = courses.find { it.id == sprintCourseId }
-    val courseQuestions = allQuestions.filter { it.courseId == sprintCourseId }
-    var tempSelectedIds by remember { mutableStateOf(sprintQuestionIds.filter { id -> courseQuestions.any { it.id == id } }.toSet()) }
+    val courseQuestions = allQuestions.filter { it.courseId == sprintCourseId || (selectedCourse?.remoteId != null && it.remoteCourseId == selectedCourse.remoteId) }
+    var tempSelectedIds by remember {
+      mutableStateOf(
+        sprintQuestionIds.filter { id ->
+          courseQuestions.any { q ->
+            val stable = if (!q.remoteId.isNullOrBlank()) com.example.data.supabase.FlexibleIdHelper.toPositiveLong(q.remoteId) else q.id
+            q.id == id || stable == id
+          }
+        }.toSet()
+      )
+    }
 
     AlertDialog(
       onDismissRequest = { showSprintQuestionPicker = false },
@@ -5686,7 +5695,11 @@ fun AdminLiveCloudSyncView(
           Spacer(modifier = Modifier.height(10.dp))
           Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-              onClick = { tempSelectedIds = courseQuestions.map { it.id }.toSet() },
+              onClick = {
+                tempSelectedIds = courseQuestions.map { q ->
+                  if (!q.remoteId.isNullOrBlank()) com.example.data.supabase.FlexibleIdHelper.toPositiveLong(q.remoteId) else q.id
+                }.toSet()
+              },
               modifier = Modifier.weight(1f).height(36.dp),
               contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
             ) { Text("Select All", style = MaterialTheme.typography.labelSmall) }
@@ -5709,13 +5722,14 @@ fun AdminLiveCloudSyncView(
           } else {
             LazyColumn(modifier = Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(6.dp)) {
               items(courseQuestions) { q ->
-                val isChecked = tempSelectedIds.contains(q.id)
+                val stableQId = if (!q.remoteId.isNullOrBlank()) com.example.data.supabase.FlexibleIdHelper.toPositiveLong(q.remoteId) else q.id
+                val isChecked = tempSelectedIds.contains(q.id) || tempSelectedIds.contains(stableQId)
                 Surface(
                   modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .clickable {
-                      tempSelectedIds = if (isChecked) tempSelectedIds - q.id else tempSelectedIds + q.id
+                      tempSelectedIds = if (isChecked) tempSelectedIds - q.id - stableQId else tempSelectedIds + stableQId
                     },
                   color = if (isChecked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                           else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -5727,12 +5741,28 @@ fun AdminLiveCloudSyncView(
                     verticalAlignment = Alignment.CenterVertically
                   ) {
                     Checkbox(checked = isChecked, onCheckedChange = { checked ->
-                      tempSelectedIds = if (checked) tempSelectedIds + q.id else tempSelectedIds - q.id
+                      tempSelectedIds = if (checked) tempSelectedIds + stableQId else tempSelectedIds - q.id - stableQId
                     })
                     Spacer(modifier = Modifier.width(6.dp))
                     Column(modifier = Modifier.weight(1f)) {
                       Text(q.questionText, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
                       Text("Ans: ${q.correctAnswer} • Marks: ${q.marks}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                      if (!q.imageUrl.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Surface(
+                          shape = RoundedCornerShape(4.dp),
+                          color = ProfessionalBlue.copy(alpha = 0.12f)
+                        ) {
+                          Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                          ) {
+                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = ProfessionalBlue, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Photo / Diagram Attached", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, color = ProfessionalBlue, fontWeight = FontWeight.Bold))
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -5765,8 +5795,17 @@ fun AdminLiveCloudSyncView(
   // Question Picker Modal for Center Practice Card (strictly filtered by practiceCourseId)
   if (showPracticeQuestionPicker) {
     val selectedCourse = courses.find { it.id == practiceCourseId }
-    val courseQuestions = allQuestions.filter { it.courseId == practiceCourseId }
-    var tempSelectedIds by remember { mutableStateOf(practiceQuestionIds.filter { id -> courseQuestions.any { it.id == id } }.toSet()) }
+    val courseQuestions = allQuestions.filter { it.courseId == practiceCourseId || (selectedCourse?.remoteId != null && it.remoteCourseId == selectedCourse.remoteId) }
+    var tempSelectedIds by remember {
+      mutableStateOf(
+        practiceQuestionIds.filter { id ->
+          courseQuestions.any { q ->
+            val stable = if (!q.remoteId.isNullOrBlank()) com.example.data.supabase.FlexibleIdHelper.toPositiveLong(q.remoteId) else q.id
+            q.id == id || stable == id
+          }
+        }.toSet()
+      )
+    }
 
     AlertDialog(
       onDismissRequest = { showPracticeQuestionPicker = false },
@@ -5786,7 +5825,11 @@ fun AdminLiveCloudSyncView(
           Spacer(modifier = Modifier.height(10.dp))
           Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-              onClick = { tempSelectedIds = courseQuestions.map { it.id }.toSet() },
+              onClick = {
+                tempSelectedIds = courseQuestions.map { q ->
+                  if (!q.remoteId.isNullOrBlank()) com.example.data.supabase.FlexibleIdHelper.toPositiveLong(q.remoteId) else q.id
+                }.toSet()
+              },
               modifier = Modifier.weight(1f).height(36.dp),
               contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
             ) { Text("Select All", style = MaterialTheme.typography.labelSmall) }
@@ -5809,13 +5852,14 @@ fun AdminLiveCloudSyncView(
           } else {
             LazyColumn(modifier = Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(6.dp)) {
               items(courseQuestions) { q ->
-                val isChecked = tempSelectedIds.contains(q.id)
+                val stableQId = if (!q.remoteId.isNullOrBlank()) com.example.data.supabase.FlexibleIdHelper.toPositiveLong(q.remoteId) else q.id
+                val isChecked = tempSelectedIds.contains(q.id) || tempSelectedIds.contains(stableQId)
                 Surface(
                   modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .clickable {
-                      tempSelectedIds = if (isChecked) tempSelectedIds - q.id else tempSelectedIds + q.id
+                      tempSelectedIds = if (isChecked) tempSelectedIds - q.id - stableQId else tempSelectedIds + stableQId
                     },
                   color = if (isChecked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                           else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -5827,12 +5871,28 @@ fun AdminLiveCloudSyncView(
                     verticalAlignment = Alignment.CenterVertically
                   ) {
                     Checkbox(checked = isChecked, onCheckedChange = { checked ->
-                      tempSelectedIds = if (checked) tempSelectedIds + q.id else tempSelectedIds - q.id
+                      tempSelectedIds = if (checked) tempSelectedIds + stableQId else tempSelectedIds - q.id - stableQId
                     })
                     Spacer(modifier = Modifier.width(6.dp))
                     Column(modifier = Modifier.weight(1f)) {
                       Text(q.questionText, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
                       Text("Ans: ${q.correctAnswer} • Marks: ${q.marks}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                      if (!q.imageUrl.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Surface(
+                          shape = RoundedCornerShape(4.dp),
+                          color = ProfessionalBlue.copy(alpha = 0.12f)
+                        ) {
+                          Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                          ) {
+                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = ProfessionalBlue, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Photo / Diagram Attached", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, color = ProfessionalBlue, fontWeight = FontWeight.Bold))
+                          }
+                        }
+                      }
                     }
                   }
                 }
@@ -5863,8 +5923,17 @@ fun AdminLiveCloudSyncView(
   // Question Picker Modal for Dashboard Mock Exam Card (strictly filtered by mockCourseId)
   if (showMockQuestionPicker) {
     val selectedCourse = courses.find { it.id == mockCourseId }
-    val courseQuestions = allQuestions.filter { it.courseId == mockCourseId }
-    var tempSelectedIds by remember { mutableStateOf(mockQuestionIds.filter { id -> courseQuestions.any { it.id == id } }.toSet()) }
+    val courseQuestions = allQuestions.filter { it.courseId == mockCourseId || (selectedCourse?.remoteId != null && it.remoteCourseId == selectedCourse.remoteId) }
+    var tempSelectedIds by remember {
+      mutableStateOf(
+        mockQuestionIds.filter { id ->
+          courseQuestions.any { q ->
+            val stable = if (!q.remoteId.isNullOrBlank()) com.example.data.supabase.FlexibleIdHelper.toPositiveLong(q.remoteId) else q.id
+            q.id == id || stable == id
+          }
+        }.toSet()
+      )
+    }
 
     AlertDialog(
       onDismissRequest = { showMockQuestionPicker = false },
@@ -5884,7 +5953,11 @@ fun AdminLiveCloudSyncView(
           Spacer(modifier = Modifier.height(10.dp))
           Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             OutlinedButton(
-              onClick = { tempSelectedIds = courseQuestions.map { it.id }.toSet() },
+              onClick = {
+                tempSelectedIds = courseQuestions.map { q ->
+                  if (!q.remoteId.isNullOrBlank()) com.example.data.supabase.FlexibleIdHelper.toPositiveLong(q.remoteId) else q.id
+                }.toSet()
+              },
               modifier = Modifier.weight(1f).height(36.dp),
               contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp)
             ) { Text("Select All", style = MaterialTheme.typography.labelSmall) }
@@ -5907,13 +5980,14 @@ fun AdminLiveCloudSyncView(
           } else {
             LazyColumn(modifier = Modifier.weight(1f, fill = false), verticalArrangement = Arrangement.spacedBy(6.dp)) {
               items(courseQuestions) { q ->
-                val isChecked = tempSelectedIds.contains(q.id)
+                val stableQId = if (!q.remoteId.isNullOrBlank()) com.example.data.supabase.FlexibleIdHelper.toPositiveLong(q.remoteId) else q.id
+                val isChecked = tempSelectedIds.contains(q.id) || tempSelectedIds.contains(stableQId)
                 Surface(
                   modifier = Modifier
                     .fillMaxWidth()
                     .clip(RoundedCornerShape(8.dp))
                     .clickable {
-                      tempSelectedIds = if (isChecked) tempSelectedIds - q.id else tempSelectedIds + q.id
+                      tempSelectedIds = if (isChecked) tempSelectedIds - q.id - stableQId else tempSelectedIds + stableQId
                     },
                   color = if (isChecked) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f)
                           else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f),
@@ -5925,12 +5999,28 @@ fun AdminLiveCloudSyncView(
                     verticalAlignment = Alignment.CenterVertically
                   ) {
                     Checkbox(checked = isChecked, onCheckedChange = { checked ->
-                      tempSelectedIds = if (checked) tempSelectedIds + q.id else tempSelectedIds - q.id
+                      tempSelectedIds = if (checked) tempSelectedIds + stableQId else tempSelectedIds - q.id - stableQId
                     })
                     Spacer(modifier = Modifier.width(6.dp))
                     Column(modifier = Modifier.weight(1f)) {
                       Text(q.questionText, style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Medium), maxLines = 2, overflow = TextOverflow.Ellipsis)
                       Text("Ans: ${q.correctAnswer} • Marks: ${q.marks}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                      if (!q.imageUrl.isNullOrBlank()) {
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Surface(
+                          shape = RoundedCornerShape(4.dp),
+                          color = ProfessionalBlue.copy(alpha = 0.12f)
+                        ) {
+                          Row(
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                          ) {
+                            Icon(Icons.Default.AddPhotoAlternate, contentDescription = null, tint = ProfessionalBlue, modifier = Modifier.size(12.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("Photo / Diagram Attached", style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp, color = ProfessionalBlue, fontWeight = FontWeight.Bold))
+                          }
+                        }
+                      }
                     }
                   }
                 }

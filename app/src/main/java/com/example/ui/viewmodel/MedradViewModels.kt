@@ -563,7 +563,7 @@ class CbtViewModel(
         val specific = cbtRepository.getQuestionsByIds(targetIds)
         val matchingSpecific = specific.filter { q ->
           val parentCourse = academicRepository?.getCourseById(q.courseId)
-          LevelClassifier.matchesUserLevel(user, parentCourse?.code, parentCourse?.level)
+          parentCourse == null || LevelClassifier.matchesUserLevel(user, parentCourse.code, parentCourse.level)
         }
         matchingSpecific
       } else {
@@ -1324,8 +1324,12 @@ class AdminViewModel(
         imageUrl = imageUrl?.trim()?.ifBlank { null },
         remoteCourseId = course?.remoteId
       )
-      val id = adminRepository.saveQuestion(q)
-      val savedQuestion = q.copy(id = id)
+      val remoteUuid = java.util.UUID.randomUUID().toString()
+      val stableId = com.example.data.supabase.FlexibleIdHelper.toPositiveLong(remoteUuid)
+      val qWithStable = q.copy(id = stableId, remoteId = remoteUuid)
+      val insertedId = adminRepository.saveQuestion(qWithStable)
+      val actualId = if (insertedId > 0) insertedId else stableId
+      val savedQuestion = qWithStable.copy(id = actualId)
       cloudSyncManager?.broadcastQuestion(savedQuestion)
 
       val courseCode = course?.code ?: "ANA 201"
@@ -1335,10 +1339,12 @@ class AdminViewModel(
         ?: com.example.data.util.LevelClassifier.getLevelFromCourseCode(courseCode)
         ?: "200 Level"
 
+      val targetQuestionId = actualId
+
       if (publishTarget == "DAILY_SPRINT" || publishTarget == "ALL_SECTIONS") {
         val curSprint = getDailySprintForLevel(courseLevel)
         val baseIds = if (curSprint.courseId == courseId) curSprint.questionIds else emptyList()
-        val updatedIds = (baseIds + id).distinct()
+        val updatedIds = (baseIds + targetQuestionId).distinct()
         val updatedSprint = curSprint.copy(
           courseId = courseId,
           courseCode = courseCode,
@@ -1354,7 +1360,7 @@ class AdminViewModel(
       if (publishTarget == "PRACTICE_CARD" || publishTarget == "ALL_SECTIONS") {
         val curPractice = getPracticeCardForLevel(courseLevel)
         val baseIds = if (curPractice.courseId == courseId) curPractice.questionIds else emptyList()
-        val updatedIds = (baseIds + id).distinct()
+        val updatedIds = (baseIds + targetQuestionId).distinct()
         val updatedPractice = curPractice.copy(
           isConfigured = true,
           courseId = courseId,
@@ -1370,7 +1376,7 @@ class AdminViewModel(
       if (publishTarget == "MOCK_EXAM" || publishTarget == "ALL_SECTIONS") {
         val curMock = getMockCardForLevel(courseLevel)
         val baseIds = if (curMock.courseId == courseId) curMock.questionIds else emptyList()
-        val updatedIds = (baseIds + id).distinct()
+        val updatedIds = (baseIds + targetQuestionId).distinct()
         val updatedMock = curMock.copy(
           isConfigured = true,
           courseId = courseId,

@@ -22,8 +22,8 @@ object ImageCompressor {
   suspend fun compressToMediumDataUri(
     context: Context,
     uri: Uri,
-    maxDimension: Int = 800,
-    quality: Int = 78
+    maxDimension: Int = 640,
+    quality: Int = 70
   ): Result<String> = withContext(Dispatchers.IO) {
     try {
       val rawBytes = readBytesFromUri(context, uri)
@@ -40,8 +40,8 @@ object ImageCompressor {
    */
   fun compressBytesToMediumDataUri(
     rawBytes: ByteArray,
-    maxDimension: Int = 800,
-    quality: Int = 78
+    maxDimension: Int = 640,
+    quality: Int = 70
   ): Result<String> {
     try {
       if (rawBytes.isEmpty()) {

@@ -22,10 +22,10 @@ class SupabaseClient(private val context: Context) {
     .build()
 
   val okHttpClient: OkHttpClient = OkHttpClient.Builder()
-    .connectTimeout(4, TimeUnit.SECONDS)
-    .readTimeout(4, TimeUnit.SECONDS)
-    .writeTimeout(4, TimeUnit.SECONDS)
-    .retryOnConnectionFailure(false)
+    .connectTimeout(20, TimeUnit.SECONDS)
+    .readTimeout(20, TimeUnit.SECONDS)
+    .writeTimeout(20, TimeUnit.SECONDS)
+    .retryOnConnectionFailure(true)
     .build()
 
   private val prefs = context.getSharedPreferences("medrad_supabase_session", Context.MODE_PRIVATE)

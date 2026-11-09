@@ -80,7 +80,32 @@ class CbtRepository(
 
   suspend fun getQuestionsByIds(ids: List<Long>): List<QuestionEntity> {
     return withContext(Dispatchers.IO) {
-      if (ids.isEmpty()) emptyList() else questionDao.getQuestionsByIds(ids)
+      if (ids.isEmpty()) return@withContext emptyList()
+      val direct = questionDao.getQuestionsByIds(ids)
+      if (direct.size >= ids.size) return@withContext direct
+
+      val idSet = ids.toSet()
+      val allPublished = questionDao.getAllQuestionsList().filter { it.isPublished }
+      val resolvedMap = mutableMapOf<Long, QuestionEntity>()
+      for (q in direct) {
+        resolvedMap[q.id] = q
+      }
+      for (q in allPublished) {
+        if (resolvedMap.containsKey(q.id)) continue
+        val remoteHash = q.remoteId?.let { com.example.data.supabase.FlexibleIdHelper.toPositiveLong(it) }
+        if (remoteHash != null && idSet.contains(remoteHash)) {
+          resolvedMap[q.id] = q
+        } else if (idSet.contains(q.id)) {
+          resolvedMap[q.id] = q
+        }
+      }
+      val result = ids.mapNotNull { targetId ->
+        resolvedMap[targetId] ?: allPublished.firstOrNull { q ->
+          q.id == targetId || (q.remoteId != null && com.example.data.supabase.FlexibleIdHelper.toPositiveLong(q.remoteId) == targetId)
+        }
+      }.distinctBy { it.id }
+
+      if (result.isNotEmpty()) result else direct
     }
   }
 

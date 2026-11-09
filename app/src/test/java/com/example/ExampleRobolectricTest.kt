@@ -1467,6 +1467,80 @@ class ExampleRobolectricTest {
     // Clean up
     container.database.userDao().deleteUser(candidate)
   }
+
+  @Test
+  fun `TEST 35 - Cross-device question synchronization with image diagram and stable ID resolution`() {
+    kotlinx.coroutines.runBlocking {
+    val context = ApplicationProvider.getApplicationContext<Context>()
+    val container = com.example.data.MedradAppContainer.getInstance(context)
+    val cbtRepo = container.cbtRepository
+    val syncMgr = container.cloudSyncManager
+
+    // 1. Create a question containing a diagram image payload
+    val testUuid = "9a8b7c6d-5e4f-3a2b-1c0d-ef9876543210"
+    val deterministicId = com.example.data.supabase.FlexibleIdHelper.toPositiveLong(testUuid)
+    val sampleDiagramUri = "data:image/jpeg;base64,/9j/4AAQSkZJRgABAQEASABIAAD/2wBDAP//////////////////////////////////////////////////////////////////////////////////////wgALCAABAAEBAREA/8QAFBABAAAAAAAAAAAAAAAAAAAAAP/aAAgBAQABPxA="
+
+    val questionWithImage = com.example.data.local.entity.QuestionEntity(
+      id = deterministicId,
+      courseId = 2L,
+      topicId = 1L,
+      questionText = "Identify the anatomical defect demonstrated on this radiographic embryology projection:",
+      optionA = "Ventricular Septal Defect",
+      optionB = "Tetralogy of Fallot",
+      optionC = "Patent Ductus Arteriosus",
+      optionD = "Coarctation of Aorta",
+      correctAnswer = "B",
+      explanation = "Tetralogy of Fallot demonstrates classical boot-shaped cardiac contour.",
+      difficulty = "Hard",
+      isPremium = false,
+      isPublished = true,
+      isDemo = false,
+      questionType = "IMAGE_DIAGRAM",
+      assessmentTitle = "ANA 203 Mid-Semester Mock",
+      marks = 2,
+      timeLimitSeconds = 90,
+      imageUrl = sampleDiagramUri,
+      remoteId = testUuid
+    )
+
+    container.database.questionDao().insertQuestion(questionWithImage)
+
+    // 2. Verify stored under course bank
+    val courseBank = container.database.questionDao().getPublishedQuestionsForCourseList(2L)
+    org.junit.Assert.assertTrue("Question must be available in course question bank", courseBank.any { it.remoteId == testUuid })
+
+    // 3. Verify cross-device ID resolution in CbtRepository:
+    // Even if another device requested the question using deterministicId
+    val resolved = cbtRepo.getQuestionsByIds(listOf(deterministicId))
+    org.junit.Assert.assertEquals("Should resolve question across devices by deterministic ID", 1, resolved.size)
+    org.junit.Assert.assertEquals("Image URL must be preserved across devices", sampleDiagramUri, resolved.first().imageUrl)
+
+    // 4. Verify resilient app_config sync processing
+    val syncPayload = org.json.JSONObject().apply {
+      put("id", "11223344-5566-7788-99aa-bbccddeeff00")
+      put("stable_id", 8877665544332211L)
+      put("course_id", 2L)
+      put("question_text", "Embryological origin of the thyroid gland is derived from:")
+      put("option_a", "First pharyngeal pouch")
+      put("option_b", "Foramen cecum endoderm")
+      put("option_c", "Neural crest cells")
+      put("option_d", "Third pharyngeal arch")
+      put("correct_answer", "B")
+      put("image_url", sampleDiagramUri)
+      put("is_published", true)
+    }
+
+    syncMgr.processQuestionSyncRecord(syncPayload, "question_sync_11223344-5566-7788-99aa-bbccddeeff00")
+    val syncedQ = container.database.questionDao().getQuestionByRemoteId("11223344-5566-7788-99aa-bbccddeeff00")
+    org.junit.Assert.assertNotNull("Incoming sync question must be inserted into Room database", syncedQ)
+    org.junit.Assert.assertEquals("Synced question image must be preserved", sampleDiagramUri, syncedQ?.imageUrl)
+
+    // Clean up
+    container.database.questionDao().deleteQuestion(questionWithImage)
+    syncedQ?.let { container.database.questionDao().deleteQuestion(it) }
+    }
+  }
 }
 
 
