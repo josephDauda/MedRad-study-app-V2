@@ -107,9 +107,9 @@ workflows:
       - name: Package complete iOS app bundle
         script: |
           cd ios
-          APP_PATH="build/Build/Products/Release-iphoneos/MedRadStudyApp.app"
+          APP_PATH="build/Build/Products/Release-iphoneos/MedRad Study.app"
           test -d "$APP_PATH"
-          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "MedRadStudyApp.app.zip"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "MedRad Study.app.zip"
 
     artifacts:
-      - ios/MedRadStudyApp.app.zip
+      - ios/MedRad Study.app.zip
