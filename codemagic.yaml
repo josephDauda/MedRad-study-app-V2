@@ -104,5 +104,12 @@ workflows:
             CODE_SIGNING_ALLOWED=NO \
             build
 
+      - name: Package complete iOS app bundle
+        script: |
+          cd ios
+          APP_PATH="build/Build/Products/Release-iphoneos/MedRadStudyApp.app"
+          test -d "$APP_PATH"
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" "MedRadStudyApp.app.zip"
+
     artifacts:
-      - ios/build/Build/Products/Release-iphoneos/*.app
+      - ios/MedRadStudyApp.app.zip
