@@ -1,0 +1,23 @@
+name: MedRadStudyApp
+
+options:
+  bundleIdPrefix: com.princejoe.medrad
+  deploymentTarget:
+    iOS: "16.0"
+
+targets:
+  MedRadStudyApp:
+    type: application
+    platform: iOS
+    sources:
+      - path: MedRadApp
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.princejoe.medrad.studyapp
+        PRODUCT_NAME: MedRad Study
+        SWIFT_VERSION: "5.0"
+        TARGETED_DEVICE_FAMILY: "1,2"
+        GENERATE_INFOPLIST_FILE: YES
+        INFOPLIST_KEY_CFBundleDisplayName: MedRad Study
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        IPHONEOS_DEPLOYMENT_TARGET: "16.0"
