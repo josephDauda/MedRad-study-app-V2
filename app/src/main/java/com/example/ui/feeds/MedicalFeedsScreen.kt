@@ -167,7 +167,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
 
 @Composable
 private fun BrandIcon(content: @Composable () -> Unit) {
-    Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(AcademicNavy, MedicalTeal))), contentAlignment = Alignment.Center, content = content)
+    Box(Modifier.size(44.dp).clip(RoundedCornerShape(14.dp)).background(Brush.linearGradient(listOf(AcademicNavy, MedicalTeal))), contentAlignment = Alignment.Center) { content() }
 }
 
 @Composable
