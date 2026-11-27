@@ -603,9 +603,9 @@ fun MainAuthenticatedScaffold(
                     shape = RoundedCornerShape(14.dp),
                     modifier = Modifier.padding(vertical = 2.dp),
                     colors = NavigationDrawerItemDefaults.colors(
-                      selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
-                      selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                      selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                      selectedContainerColor = MedicalTeal.copy(alpha = .12f),
+                      selectedTextColor = MedicalTeal,
+                      selectedIconColor = MedicalTeal,
                       unselectedTextColor = MaterialTheme.colorScheme.onSurface,
                       unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant
                     )
@@ -687,7 +687,7 @@ private fun NavPillItem(
   Surface(
     onClick = onClick,
     shape = RoundedCornerShape(18.dp),
-    color = if (selected) MaterialTheme.colorScheme.primaryContainer else Color.Transparent,
+    color = if (selected) MedicalTeal.copy(alpha = .12f) else Color.Transparent,
     modifier = Modifier.height(44.dp)
   ) {
     Row(
@@ -699,7 +699,7 @@ private fun NavPillItem(
       Icon(
         imageVector = icon,
         contentDescription = label,
-        tint = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurfaceVariant,
+        tint = if (selected) MedicalTeal else MaterialTheme.colorScheme.onSurfaceVariant,
         modifier = Modifier.size(20.dp)
       )
       if (selected) {
@@ -707,7 +707,7 @@ private fun NavPillItem(
         Text(
           text = label,
           style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-          color = MaterialTheme.colorScheme.onPrimaryContainer
+          color = MedicalTeal
         )
       }
     }
@@ -716,9 +716,9 @@ private fun NavPillItem(
 
 @Composable
 fun railItemColors() = NavigationRailItemDefaults.colors(
-  selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
-  selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+  selectedIconColor = MedicalTeal,
+  selectedTextColor = MedicalTeal,
   unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant,
   unselectedTextColor = MaterialTheme.colorScheme.onSurfaceVariant,
-  indicatorColor = MaterialTheme.colorScheme.primaryContainer
+  indicatorColor = MedicalTeal.copy(alpha = .12f)
 )
