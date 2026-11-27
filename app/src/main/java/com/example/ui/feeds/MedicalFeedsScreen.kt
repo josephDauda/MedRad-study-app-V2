@@ -9,6 +9,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
@@ -28,6 +29,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
   var loading by remember { mutableStateOf(true) }
   var error by remember { mutableStateOf<String?>(null) }
   val scope=rememberCoroutineScope()
+  val uriHandler=LocalUriHandler.current
 
   suspend fun refresh() {
     loading=true; error=null
@@ -77,12 +79,12 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                   Text(post.author,style=MaterialTheme.typography.titleSmall,fontWeight=FontWeight.SemiBold)
                   Text(listOf(post.department,post.level).filter(String::isNotBlank).joinToString(" • "),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                AssistChip(onClick={},label={Text(post.category.replace('_',' '))})
+                Text(post.category.replace('_',' '),style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
               }
               if(post.title.isNotBlank()) Text(post.title,style=MaterialTheme.typography.titleMedium,fontWeight=FontWeight.Bold)
               if(post.content.isNotBlank()) Text(post.content,style=MaterialTheme.typography.bodyMedium)
               post.media.firstOrNull()?.let { media -> AsyncImage(model=media.thumbnail?:media.url,contentDescription="Feed media",modifier=Modifier.fillMaxWidth().heightIn(max=300.dp)) }
-              if(post.resource!=null) Text("Attached resource: "+post.resource,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.primary)
+              if(post.resource!=null) TextButton(onClick={uriHandler.openUri(post.resource)}){Text("Open attached resource")}
               Row(horizontalArrangement=Arrangement.spacedBy(16.dp)) {
                 Text("♥ ${post.reactions}",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
                 Text("Comments ${post.comments}",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
