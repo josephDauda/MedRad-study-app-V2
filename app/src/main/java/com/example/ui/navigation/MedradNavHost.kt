@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.shape.CircleShape
@@ -780,8 +782,9 @@ fun MainAuthenticatedScaffold(
             Row(
               modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 6.dp),
-              horizontalArrangement = Arrangement.SpaceAround,
+                .padding(horizontal = 6.dp, vertical = 6.dp)
+                .horizontalScroll(rememberScrollState()),
+              horizontalArrangement = Arrangement.spacedBy(2.dp),
               verticalAlignment = Alignment.CenterVertically
             ) {
               NavPillItem(
