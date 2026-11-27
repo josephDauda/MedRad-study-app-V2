@@ -117,6 +117,7 @@ import com.example.ui.viewmodel.DashboardViewModel
 import com.example.ui.viewmodel.ResultsViewModel
 import com.example.ui.viewmodel.SubscriptionViewModel
 import com.example.ui.scholars.DiscoverScholarsScreen
+import com.example.ui.feeds.MedicalFeedsScreen
 import com.example.ui.welcome.WelcomeScreen
 import kotlinx.coroutines.launch
 
@@ -135,7 +136,8 @@ enum class ScreenRoute {
   ABOUT,
   TERMS,
   NOTIFICATIONS,
-  SCHOLARS
+  SCHOLARS,
+  FEEDS
 }
 
 @Composable
@@ -458,6 +460,7 @@ fun MedradNavHost(
                   onNavigateBack = { popBackStack() }
                 )
                 ScreenRoute.SCHOLARS -> DiscoverScholarsScreen(container.cloudSyncManager.supabaseClient)
+                ScreenRoute.FEEDS -> MedicalFeedsScreen(container.cloudSyncManager.supabaseClient)
                 ScreenRoute.NOTIFICATIONS -> NotificationsScreen(
                   user = user,
                   notificationRepository = container.notificationRepository,
@@ -544,6 +547,13 @@ fun MainAuthenticatedScaffold(
             onClick = { onNavigate(ScreenRoute.SCHOLARS) },
             icon = { Icon(Icons.Default.Search, contentDescription = "Discover Scholars") },
             label = { Text("Scholars", fontSize = 10.sp) },
+            colors = railItemColors()
+          )
+          NavigationRailItem(
+            selected = currentRoute == ScreenRoute.FEEDS,
+            onClick = { onNavigate(ScreenRoute.FEEDS) },
+            icon = { Icon(Icons.Default.Description, contentDescription = "Medical Feeds") },
+            label = { Text("Feeds", fontSize = 10.sp) },
             colors = railItemColors()
           )
           NavigationRailItem(
@@ -781,6 +791,12 @@ fun MainAuthenticatedScaffold(
                 icon = Icons.Default.Search,
                 label = "Scholars",
                 onClick = { onNavigate(ScreenRoute.SCHOLARS) }
+              )
+              NavPillItem(
+                selected = currentRoute == ScreenRoute.FEEDS,
+                icon = Icons.Default.Description,
+                label = "Feeds",
+                onClick = { onNavigate(ScreenRoute.FEEDS) }
               )
               NavPillItem(
                 selected = currentRoute == ScreenRoute.MATERIALS,
