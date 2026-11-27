@@ -29,6 +29,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import coil.compose.AsyncImage
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.shape.CircleShape
@@ -41,6 +42,7 @@ import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.MenuBook
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.PlayArrow
@@ -504,350 +506,171 @@ fun MainAuthenticatedScaffold(
 ) {
   val profilePhotoUri by userProfilePreferences.profilePhotoUri.collectAsState()
   val unreadNotifications by (notificationRepository?.getUnreadCountFlow(user) ?: kotlinx.coroutines.flow.flowOf(0)).collectAsState(initial = 0)
+  val drawerState = rememberDrawerState(DrawerValue.Closed)
+  val scope = rememberCoroutineScope()
+  val navItems = buildList {
+    add(Triple(ScreenRoute.DASHBOARD, Icons.Default.Dashboard, "Home"))
+    add(Triple(ScreenRoute.COURSES, Icons.Default.School, "Courses"))
+    add(Triple(ScreenRoute.SCHOLARS, Icons.Default.Search, "Discover Scholars"))
+    add(Triple(ScreenRoute.FEEDS, Icons.Default.Description, "Medical Feeds"))
+    add(Triple(ScreenRoute.TUTORS, Icons.Default.Assignment, "Tutor Directory"))
+    add(Triple(ScreenRoute.MATERIALS, Icons.Default.MenuBook, "Study Materials"))
+    add(Triple(ScreenRoute.PROGRESS, Icons.Default.Person, "Profile"))
+    add(Triple(ScreenRoute.SUBSCRIPTION, Icons.Default.WorkspacePremium, "Premium"))
+    add(Triple(ScreenRoute.NOTIFICATIONS, Icons.Default.Notifications, "Notifications"))
+    if (user.role == "ADMIN") add(Triple(ScreenRoute.ADMIN, Icons.Default.AdminPanelSettings, "Admin Portal"))
+    add(Triple(ScreenRoute.ABOUT, Icons.Outlined.Info, "About MedRad"))
+  }
+  val selectedTitle = navItems.firstOrNull { it.first == currentRoute }?.third ?: "MedRad Study"
 
-  BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
+  BoxWithConstraints(Modifier.fillMaxSize()) {
     val isTablet = maxWidth >= 600.dp
-
     if (isTablet) {
-      Row(modifier = Modifier.fillMaxSize()) {
+      Row(Modifier.fillMaxSize()) {
         NavigationRail(
           containerColor = MaterialTheme.colorScheme.surface,
           header = {
-            Column(
-              horizontalAlignment = Alignment.CenterHorizontally,
-              modifier = Modifier.padding(vertical = 16.dp)
-            ) {
-              Surface(
-                shape = CircleShape,
-                color = WarningAmber.copy(alpha = 0.2f),
-                modifier = Modifier.size(46.dp)
-              ) {
-                Box(contentAlignment = Alignment.Center) {
-                  Image(
-                    painter = painterResource(id = R.drawable.medrad_official_logo),
-                    contentDescription = "Logo",
-                    modifier = Modifier.size(38.dp).clip(CircleShape)
-                  )
-                }
-              }
+            Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.padding(vertical = 14.dp).size(46.dp)) {
+              Box(contentAlignment = Alignment.Center) { Image(painterResource(R.drawable.medrad_official_logo), "MedRad logo", modifier = Modifier.size(40.dp).clip(CircleShape)) }
             }
           }
         ) {
-          NavigationRailItem(
-            selected = currentRoute == ScreenRoute.DASHBOARD,
-            onClick = { onNavigate(ScreenRoute.DASHBOARD) },
-            icon = { Icon(Icons.Default.Dashboard, contentDescription = "Dashboard") },
-            label = { Text("Home", fontSize = 10.sp) },
-            colors = railItemColors()
-          )
-          NavigationRailItem(
-            selected = currentRoute == ScreenRoute.COURSES,
-            onClick = { onNavigate(ScreenRoute.COURSES) },
-            icon = { Icon(Icons.Default.School, contentDescription = "Courses") },
-            label = { Text("Courses", fontSize = 10.sp) },
-            colors = railItemColors()
-          )
-          NavigationRailItem(
-            selected = currentRoute == ScreenRoute.SCHOLARS,
-            onClick = { onNavigate(ScreenRoute.SCHOLARS) },
-            icon = { Icon(Icons.Default.Search, contentDescription = "Discover Scholars") },
-            label = { Text("Scholars", fontSize = 10.sp) },
-            colors = railItemColors()
-          )
-          NavigationRailItem(
-            selected = currentRoute == ScreenRoute.FEEDS,
-            onClick = { onNavigate(ScreenRoute.FEEDS) },
-            icon = { Icon(Icons.Default.Description, contentDescription = "Medical Feeds") },
-            label = { Text("Feeds", fontSize = 10.sp) },
-            colors = railItemColors()
-          )
-          NavigationRailItem(
-            selected = currentRoute == ScreenRoute.TUTORS,
-            onClick = { onNavigate(ScreenRoute.TUTORS) },
-            icon = { Icon(Icons.Default.Assignment, contentDescription = "Tutors") },
-            label = { Text("Tutors", fontSize = 10.sp) },
-            colors = railItemColors()
-          )
-          NavigationRailItem(
-            selected = currentRoute == ScreenRoute.MATERIALS,
-            onClick = { onNavigate(ScreenRoute.MATERIALS) },
-            icon = { Icon(Icons.Default.MenuBook, contentDescription = "Materials") },
-            label = { Text("Notes", fontSize = 10.sp) },
-            colors = railItemColors()
-          )
-          NavigationRailItem(
-            selected = currentRoute == ScreenRoute.PROGRESS,
-            onClick = { onNavigate(ScreenRoute.PROGRESS) },
-            icon = { Icon(Icons.Default.Person, contentDescription = "Profile") },
-            label = { Text("Profile", fontSize = 10.sp) },
-            colors = railItemColors()
-          )
-          NavigationRailItem(
-            selected = currentRoute == ScreenRoute.SUBSCRIPTION,
-            onClick = { onNavigate(ScreenRoute.SUBSCRIPTION) },
-            icon = { Icon(Icons.Default.WorkspacePremium, contentDescription = "Premium") },
-            label = { Text("Premium", fontSize = 10.sp) },
-            colors = railItemColors()
-          )
-          NavigationRailItem(
-            selected = currentRoute == ScreenRoute.NOTIFICATIONS,
-            onClick = { onNavigate(ScreenRoute.NOTIFICATIONS) },
-            icon = {
-              Box(contentAlignment = Alignment.TopEnd) {
-                Icon(Icons.Default.Notifications, contentDescription = "Notifications")
-                if (unreadNotifications > 0) {
-                  Box(
-                    modifier = Modifier
-                      .size(8.dp)
-                      .background(Color(0xFFEF4444), CircleShape)
-                  )
-                }
-              }
-            },
-            label = { Text("Notices", fontSize = 10.sp) },
-            colors = railItemColors()
-          )
-          if (user.role == "ADMIN") {
+          navItems.filter { it.first != ScreenRoute.ABOUT }.forEach { item ->
             NavigationRailItem(
-              selected = currentRoute == ScreenRoute.ADMIN,
-              onClick = { onNavigate(ScreenRoute.ADMIN) },
-              icon = { Icon(Icons.Default.AdminPanelSettings, contentDescription = "Admin") },
-              label = { Text("Admin", fontSize = 10.sp) },
+              selected = currentRoute == item.first,
+              onClick = { onNavigate(item.first) },
+              icon = { Icon(item.second, contentDescription = item.third) },
+              label = { Text(item.third, fontSize = 10.sp) },
               colors = railItemColors()
             )
           }
-
-          Spacer(modifier = Modifier.weight(1f))
-
-          IconButton(
-            onClick = { onNavigate(ScreenRoute.ABOUT) }
-          ) {
-            Icon(Icons.Outlined.Info, contentDescription = "About App", tint = MaterialTheme.colorScheme.onSurface)
-          }
-
-          IconButton(
-            onClick = onLogout,
-            modifier = Modifier.padding(bottom = 16.dp)
-          ) {
-            Icon(Icons.AutoMirrored.Filled.ExitToApp, contentDescription = "Logout", tint = Color(0xFFEF4444))
+          Spacer(Modifier.weight(1f))
+          IconButton(onClick = onLogout, modifier = Modifier.padding(bottom = 12.dp)) {
+            Icon(Icons.AutoMirrored.Filled.ExitToApp, "Sign out", tint = MaterialTheme.colorScheme.error)
           }
         }
-
-        Box(modifier = Modifier.weight(1f).fillMaxHeight()) {
-          content()
+        Column(Modifier.weight(1f).fillMaxHeight()) {
+          Surface(color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .4f))) {
+            Row(Modifier.fillMaxWidth().padding(horizontal = 18.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+              Text(selectedTitle, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
+              IconButton(onClick = { onNavigate(ScreenRoute.NOTIFICATIONS) }) {
+                Box { Icon(Icons.Default.Notifications, "Notifications"); if (unreadNotifications > 0) Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(Color(0xFFEF4444), CircleShape)) }
+              }
+            }
+          }
+          Box(Modifier.weight(1f).fillMaxWidth()) { content() }
         }
       }
     } else {
-      // Mobile Layout: Integrated Clean Header + Content + Modern Floating Dock (Adapts to Light & Dark)
-      Scaffold(
-        topBar = {
-          if (currentRoute == ScreenRoute.DASHBOARD) {
-            Surface(
-            color = MaterialTheme.colorScheme.background,
-            border = BorderStroke(0.5.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.35f)),
-            modifier = Modifier.fillMaxWidth()
-          ) {
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .statusBarsPadding()
-                .padding(horizontal = 16.dp, vertical = 10.dp),
-              verticalAlignment = Alignment.CenterVertically,
-              horizontalArrangement = Arrangement.SpaceBetween
-            ) {
-              // Left: User Avatar + Title & Subtitle (Clickable to jump to Profile)
-              Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier
-                  .weight(1f)
-                  .clickable { onNavigate(ScreenRoute.PROGRESS) }
-              ) {
-                Surface(
-                  shape = CircleShape,
-                  color = MaterialTheme.colorScheme.primaryContainer,
-                  border = BorderStroke(1.5.dp, WarningAmber),
-                  modifier = Modifier.size(38.dp)
-                ) {
-                  if (profilePhotoUri != null) {
-                    AsyncImage(
-                      model = profilePhotoUri,
-                      contentDescription = "Profile",
-                      contentScale = ContentScale.Crop,
-                      modifier = Modifier.fillMaxSize()
-                    )
-                  } else {
-                    val initials = user.fullName
-                      .split(" ")
-                      .filter { it.isNotBlank() }
-                      .take(2)
-                      .map { it.first().uppercaseChar() }
-                      .joinToString("")
-                    Box(contentAlignment = Alignment.Center) {
-                      Text(
-                        text = if (initials.isNotEmpty()) initials else "MR",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
-                        color = MaterialTheme.colorScheme.onPrimaryContainer
-                      )
-                    }
+      ModalNavigationDrawer(
+        drawerState = drawerState,
+        drawerContent = {
+          ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surface) {
+            Column(Modifier.fillMaxHeight().padding(horizontal = 12.dp)) {
+              Row(Modifier.fillMaxWidth().padding(top = 18.dp, bottom = 16.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(48.dp)) {
+                  Box(contentAlignment = Alignment.Center) { Image(painterResource(R.drawable.medrad_official_logo), "MedRad logo", modifier = Modifier.size(42.dp).clip(RoundedCornerShape(12.dp))) }
+                }
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                  Text("MedRad Study", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                  Text("Study community", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+              }
+              HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+              Row(Modifier.fillMaxWidth().padding(vertical = 14.dp), verticalAlignment = Alignment.CenterVertically) {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer, border = BorderStroke(1.dp, WarningAmber), modifier = Modifier.size(42.dp)) {
+                  if (profilePhotoUri != null) AsyncImage(model = profilePhotoUri, contentDescription = "Profile", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxSize())
+                  else Box(contentAlignment = Alignment.Center) {
+                    Text(user.fullName.split(" ").filter { it.isNotBlank() }.take(2).map { it.first().uppercaseChar() }.joinToString("").ifBlank { "MR" }, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
                   }
                 }
-
-                Spacer(modifier = Modifier.width(10.dp))
-
+                Column(Modifier.weight(1f).padding(start = 10.dp)) {
+                  Text(user.fullName, fontWeight = FontWeight.SemiBold, maxLines = 1)
+                  Text(user.level, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
+                }
+              }
+              HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+              Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(top = 8.dp)) {
+                navItems.forEach { item ->
+                  NavigationDrawerItem(
+                    label = { Text(item.third) },
+                    icon = { Icon(item.second, contentDescription = item.third) },
+                    selected = currentRoute == item.first,
+                    onClick = {
+                      scope.launch { drawerState.close() }
+                      onNavigate(item.first)
+                    },
+                    shape = RoundedCornerShape(14.dp),
+                    modifier = Modifier.padding(vertical = 2.dp),
+                    colors = NavigationDrawerItemDefaults.colors(
+                      selectedContainerColor = MaterialTheme.colorScheme.primaryContainer,
+                      selectedTextColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                      selectedIconColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                      unselectedTextColor = MaterialTheme.colorScheme.onSurface,
+                      unselectedIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                  )
+                }
+              }
+              HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+              NavigationDrawerItem(
+                label = { Text("Sign out") },
+                icon = { Icon(Icons.AutoMirrored.Filled.ExitToApp, "Sign out", tint = MaterialTheme.colorScheme.error) },
+                selected = false,
+                onClick = onLogout,
+                shape = RoundedCornerShape(14.dp),
+                modifier = Modifier.padding(vertical = 8.dp),
+                colors = NavigationDrawerItemDefaults.colors(unselectedTextColor = MaterialTheme.colorScheme.error)
+              )
+            }
+          }
+        }
+      ) {
+        Scaffold(
+          topBar = {
+            TopAppBar(
+              title = {
                 Column {
-                  Text(
-                    text = "MedRad Study App",
-                    style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = MaterialTheme.colorScheme.onBackground
-                  )
-                  Text(
-                    text = "${user.fullName} • ${user.level}",
-                    style = MaterialTheme.typography.labelSmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                  )
+                  Text(selectedTitle, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                  Text("MedRad Study • ${user.fullName}", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
                 }
-              }
-
-              // Right: Action Icons
-              Row(verticalAlignment = Alignment.CenterVertically) {
-                if (user.role == "ADMIN") {
-                  IconButton(
-                    onClick = { onNavigate(ScreenRoute.ADMIN) },
-                    modifier = Modifier.testTag("admin_portal_icon_button")
-                  ) {
-                    Icon(
-                      Icons.Default.AdminPanelSettings,
-                      contentDescription = "Admin Portal",
-                      tint = WarningAmber
-                    )
+              },
+              navigationIcon = {
+                IconButton(onClick = { scope.launch { drawerState.open() } }) { Icon(Icons.Default.Menu, "Open navigation", tint = MedicalTeal) }
+              },
+              actions = {
+                if (user.role == "ADMIN" && currentRoute != ScreenRoute.ADMIN) {
+                  IconButton(onClick = { onNavigate(ScreenRoute.ADMIN) }) { Icon(Icons.Default.AdminPanelSettings, "Admin portal", tint = WarningAmber) }
+                }
+                IconButton(onClick = { onNavigate(ScreenRoute.NOTIFICATIONS) }) {
+                  Box {
+                    Icon(Icons.Default.Notifications, "Notifications")
+                    if (unreadNotifications > 0) Box(Modifier.align(Alignment.TopEnd).size(8.dp).background(Color(0xFFEF4444), CircleShape))
                   }
                 }
-
-                IconButton(
-                  onClick = { onNavigate(ScreenRoute.NOTIFICATIONS) },
-                  modifier = Modifier.testTag("topbar_notifications_button")
-                ) {
-                  Box(contentAlignment = Alignment.TopEnd) {
-                    Icon(
-                      Icons.Default.Notifications,
-                      contentDescription = "Notifications",
-                      tint = MaterialTheme.colorScheme.onSurface
-                    )
-                    if (unreadNotifications > 0) {
-                      Box(
-                        modifier = Modifier
-                          .size(8.dp)
-                          .background(Color(0xFFEF4444), CircleShape)
-                      )
-                    }
-                  }
-                }
-
-                IconButton(
-                  onClick = { onNavigate(ScreenRoute.ABOUT) },
-                  modifier = Modifier.testTag("topbar_about_button")
-                ) {
-                  Icon(
-                    Icons.Outlined.Info,
-                    contentDescription = "About App",
-                    tint = MaterialTheme.colorScheme.onSurface
-                  )
-                }
-
-                IconButton(onClick = onLogout) {
-                  Icon(
-                    Icons.AutoMirrored.Filled.ExitToApp,
-                    contentDescription = "Logout",
-                    tint = Color(0xFFEF4444)
-                  )
-                }
-              }
-            }
-          }
-        }
-      },
-        bottomBar = {
-          // Floating Adaptive Dock Bar (No dark/brown heavy block; adapts cleanly to light and dark)
-          Surface(
-            shape = RoundedCornerShape(26.dp),
-            color = MaterialTheme.colorScheme.surface,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.6f)),
-            shadowElevation = 8.dp,
-            modifier = Modifier
-              .fillMaxWidth()
-              .padding(horizontal = 16.dp, vertical = 8.dp)
-              .navigationBarsPadding()
-              .testTag("modern_floating_nav_bar")
-          ) {
-            Row(
-              modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 6.dp, vertical = 6.dp)
-                .horizontalScroll(rememberScrollState()),
-              horizontalArrangement = Arrangement.spacedBy(2.dp),
-              verticalAlignment = Alignment.CenterVertically
-            ) {
-              NavPillItem(
-                selected = currentRoute == ScreenRoute.DASHBOARD,
-                icon = Icons.Default.Dashboard,
-                label = "Home",
-                onClick = { onNavigate(ScreenRoute.DASHBOARD) }
-              )
-              NavPillItem(
-                selected = currentRoute == ScreenRoute.COURSES,
-                icon = Icons.Default.School,
-                label = "Courses",
-                onClick = { onNavigate(ScreenRoute.COURSES) }
-              )
-              NavPillItem(
-                selected = currentRoute == ScreenRoute.SCHOLARS,
-                icon = Icons.Default.Search,
-                label = "Scholars",
-                onClick = { onNavigate(ScreenRoute.SCHOLARS) }
-              )
-              NavPillItem(
-                selected = currentRoute == ScreenRoute.FEEDS,
-                icon = Icons.Default.Description,
-                label = "Feeds",
-                onClick = { onNavigate(ScreenRoute.FEEDS) }
-              )
-              NavPillItem(
-                selected = currentRoute == ScreenRoute.TUTORS,
-                icon = Icons.Default.Assignment,
-                label = "Tutors",
-                onClick = { onNavigate(ScreenRoute.TUTORS) }
-              )
-              NavPillItem(
-                selected = currentRoute == ScreenRoute.MATERIALS,
-                icon = Icons.Default.MenuBook,
-                label = "Notes",
-                onClick = { onNavigate(ScreenRoute.MATERIALS) }
-              )
-              NavPillItem(
-                selected = currentRoute == ScreenRoute.PROGRESS,
-                icon = Icons.Default.Person,
-                label = "Profile",
-                onClick = { onNavigate(ScreenRoute.PROGRESS) }
-              )
-              NavPillItem(
-                selected = currentRoute == ScreenRoute.SUBSCRIPTION,
-                icon = Icons.Default.WorkspacePremium,
-                label = "Premium",
-                onClick = { onNavigate(ScreenRoute.SUBSCRIPTION) }
-              )
-            }
-          }
-        }
-      ) { innerPadding ->
-        Box(
-          modifier = Modifier
-            .fillMaxSize()
-            .padding(
-              top = if (currentRoute == ScreenRoute.DASHBOARD) innerPadding.calculateTopPadding() else 0.dp,
-              bottom = innerPadding.calculateBottomPadding()
+              },
+              colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface)
             )
-        ) {
-          content()
+          },
+          bottomBar = {
+            Surface(
+              shape = RoundedCornerShape(24.dp),
+              color = MaterialTheme.colorScheme.surface,
+              border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .6f)),
+              shadowElevation = 7.dp,
+              modifier = Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 6.dp).navigationBarsPadding().testTag("modern_floating_nav_bar")
+            ) {
+              Row(Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 5.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                NavPillItem(currentRoute == ScreenRoute.DASHBOARD, Icons.Default.Dashboard, "Home") { onNavigate(ScreenRoute.DASHBOARD) }
+                NavPillItem(currentRoute == ScreenRoute.COURSES, Icons.Default.School, "Courses") { onNavigate(ScreenRoute.COURSES) }
+                NavPillItem(currentRoute == ScreenRoute.FEEDS, Icons.Default.Description, "Feeds") { onNavigate(ScreenRoute.FEEDS) }
+                NavPillItem(currentRoute == ScreenRoute.SCHOLARS, Icons.Default.Search, "Scholars") { onNavigate(ScreenRoute.SCHOLARS) }
+                NavPillItem(currentRoute == ScreenRoute.TUTORS, Icons.Default.Assignment, "Tutors") { onNavigate(ScreenRoute.TUTORS) }
+              }
+            }
+          }
+        ) { padding ->
+          Box(Modifier.fillMaxSize().padding(padding)) { content() }
         }
       }
     }
