@@ -1,6 +1,8 @@
 package com.example.ui.feeds
 
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
@@ -20,12 +22,16 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+private data class FeedCategory(val slug:String,val name:String)
 private data class FeedMedia(val url:String,val thumbnail:String?,val kind:String,val filename:String)
 private data class FeedPost(val id:String,val author:String,val department:String,val level:String,val title:String,val content:String,val category:String,val postType:String,val createdAt:String,val reactions:Int,val comments:Int,val media:List<FeedMedia>,val resource:String?)
 
 @Composable
 fun MedicalFeedsScreen(client: SupabaseClient) {
   var posts by remember { mutableStateOf<List<FeedPost>>(emptyList()) }
+  var categories by remember { mutableStateOf(listOf(FeedCategory("general","General"))) }
+  var selectedCategory by remember { mutableStateOf("all") }
+  var search by remember { mutableStateOf("") }
   var loading by remember { mutableStateOf(true) }
   var error by remember { mutableStateOf<String?>(null) }
   val scope=rememberCoroutineScope()
@@ -34,6 +40,15 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
   suspend fun refresh() {
     loading=true; error=null
     try {
+      runCatching {
+        val categoryRaw=client.restGet("community_categories?select=slug,name&is_active=eq.true&order=sort_order.asc").getOrElse{throw it}
+        val categoryArr=JSONArray(categoryRaw)
+        val loaded=(0 until categoryArr.length()).mapNotNull { i ->
+          val c=categoryArr.optJSONObject(i)?:return@mapNotNull null
+          FeedCategory(c.optString("slug"),c.optString("name"))
+        }
+        if(loaded.isNotEmpty()) categories=loaded
+      }
       val raw=client.restGet("feed_posts_public?select=id,author_name,author_department,author_level,title,content,category_slug,post_type,created_at,reaction_count,comment_count,resource_url&order=created_at.desc&limit=30").getOrElse { throw it }
       val arr=JSONArray(raw)
       val ids=(0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.optString("id")?.takeIf(String::isNotBlank) }
@@ -66,12 +81,24 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
       }
       IconButton(onClick={scope.launch{refresh()}},enabled=!loading){Icon(Icons.Default.Refresh,contentDescription="Refresh feed")}
     }
+    TextField(value=search,onValueChange={search=it},modifier=Modifier.fillMaxWidth(),singleLine=true,placeholder={Text("Search posts…")})
+    Spacer(Modifier.height(8.dp))
+    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),horizontalArrangement=Arrangement.spacedBy(6.dp)) {
+      FilterChip(selected=selectedCategory=="all",onClick={selectedCategory="all"},label={Text("All")})
+      categories.forEach { category ->
+        FilterChip(selected=selectedCategory==category.slug,onClick={selectedCategory=category.slug},label={Text(category.name)})
+      }
+    }
+    val visiblePosts=posts.filter { post ->
+      (selectedCategory=="all"||post.category==selectedCategory) &&
+      (search.isBlank()||post.title.contains(search,true)||post.content.contains(search,true)||post.author.contains(search,true))
+    }
     when {
       loading -> Box(Modifier.fillMaxWidth().weight(1f),contentAlignment=Alignment.Center){CircularProgressIndicator(); }
       error!=null -> Column(Modifier.fillMaxWidth().weight(1f),verticalArrangement=Arrangement.Center,horizontalAlignment=Alignment.CenterHorizontally){Text(error!!,color=MaterialTheme.colorScheme.error);Spacer(Modifier.height(10.dp));Button(onClick={scope.launch{refresh()}}){Text("Retry")}}
-      posts.isEmpty() -> Box(Modifier.fillMaxWidth().weight(1f),contentAlignment=Alignment.Center){Text("No public posts yet. Check back soon.",color=MaterialTheme.colorScheme.onSurfaceVariant)}
+      visiblePosts.isEmpty() -> Box(Modifier.fillMaxWidth().weight(1f),contentAlignment=Alignment.Center){Text(if(posts.isEmpty()) "No public posts yet. Check back soon." else "No posts match these filters.",color=MaterialTheme.colorScheme.onSurfaceVariant)}
       else -> LazyColumn(Modifier.weight(1f),verticalArrangement=Arrangement.spacedBy(12.dp),contentPadding=PaddingValues(bottom=12.dp)) {
-        items(posts,key={it.id}) { post ->
+        items(visiblePosts,key={it.id}) { post ->
           Card(Modifier.fillMaxWidth(),colors=CardDefaults.cardColors(containerColor=MaterialTheme.colorScheme.surfaceContainerLow)) {
             Column(Modifier.padding(14.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
               Row(Modifier.fillMaxWidth(),verticalAlignment=Alignment.CenterVertically) {
