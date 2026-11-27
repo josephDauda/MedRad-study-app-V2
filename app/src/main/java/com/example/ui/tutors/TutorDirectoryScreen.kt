@@ -62,7 +62,7 @@ fun TutorDirectoryScreen(client:SupabaseClient) {
               Column(Modifier.padding(start=12.dp).weight(1f),verticalArrangement=Arrangement.spacedBy(5.dp)) {
                 Text(tutor.name,fontWeight=FontWeight.SemiBold,style=MaterialTheme.typography.titleMedium)
                 Text(listOf(tutor.level,tutor.degree).filter(String::isNotBlank).joinToString(" • "),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                AssistChip(onClick={},label={Text(tutor.availability.replace('_',' ').lowercase().replaceFirstChar{it.uppercase()})})
+                Text("Status: "+tutor.availability.replace('_',' ').lowercase().replaceFirstChar{it.uppercase()},style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.primary)
                 if(tutor.specialties.isNotBlank()) Text("Specialties: "+tutor.specialties,style=MaterialTheme.typography.bodyMedium)
                 if(tutor.bio.isNotBlank()) Text(tutor.bio,style=MaterialTheme.typography.bodySmall)
                 Text("Daily availability: ${tutor.hours} hrs",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.primary)
