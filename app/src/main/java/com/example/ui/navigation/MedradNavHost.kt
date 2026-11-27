@@ -40,6 +40,7 @@ import androidx.compose.material.icons.filled.Dashboard
 import androidx.compose.material.icons.filled.Description
 import androidx.compose.material.icons.filled.MenuBook
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.WorkspacePremium
@@ -115,6 +116,7 @@ import com.example.ui.viewmodel.CbtViewModel
 import com.example.ui.viewmodel.DashboardViewModel
 import com.example.ui.viewmodel.ResultsViewModel
 import com.example.ui.viewmodel.SubscriptionViewModel
+import com.example.ui.scholars.DiscoverScholarsScreen
 import com.example.ui.welcome.WelcomeScreen
 import kotlinx.coroutines.launch
 
@@ -132,7 +134,8 @@ enum class ScreenRoute {
   RESULTS,
   ABOUT,
   TERMS,
-  NOTIFICATIONS
+  NOTIFICATIONS,
+  SCHOLARS
 }
 
 @Composable
@@ -454,6 +457,7 @@ fun MedradNavHost(
                   subscriptionViewModel = subscriptionViewModel,
                   onNavigateBack = { popBackStack() }
                 )
+                ScreenRoute.SCHOLARS -> DiscoverScholarsScreen(container.cloudSyncManager.supabaseClient)
                 ScreenRoute.NOTIFICATIONS -> NotificationsScreen(
                   user = user,
                   notificationRepository = container.notificationRepository,
@@ -533,6 +537,13 @@ fun MainAuthenticatedScaffold(
             onClick = { onNavigate(ScreenRoute.COURSES) },
             icon = { Icon(Icons.Default.School, contentDescription = "Courses") },
             label = { Text("Courses", fontSize = 10.sp) },
+            colors = railItemColors()
+          )
+          NavigationRailItem(
+            selected = currentRoute == ScreenRoute.SCHOLARS,
+            onClick = { onNavigate(ScreenRoute.SCHOLARS) },
+            icon = { Icon(Icons.Default.Search, contentDescription = "Discover Scholars") },
+            label = { Text("Scholars", fontSize = 10.sp) },
             colors = railItemColors()
           )
           NavigationRailItem(
@@ -764,6 +775,12 @@ fun MainAuthenticatedScaffold(
                 icon = Icons.Default.School,
                 label = "Courses",
                 onClick = { onNavigate(ScreenRoute.COURSES) }
+              )
+              NavPillItem(
+                selected = currentRoute == ScreenRoute.SCHOLARS,
+                icon = Icons.Default.Search,
+                label = "Scholars",
+                onClick = { onNavigate(ScreenRoute.SCHOLARS) }
               )
               NavPillItem(
                 selected = currentRoute == ScreenRoute.MATERIALS,
