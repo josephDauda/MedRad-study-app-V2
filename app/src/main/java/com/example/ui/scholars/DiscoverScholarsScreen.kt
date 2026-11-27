@@ -25,19 +25,37 @@ fun DiscoverScholarsScreen(client: SupabaseClient) {
   var error by remember { mutableStateOf<String?>(null) }
   val scope = rememberCoroutineScope()
   suspend fun loadDirectory() {
-    loading = true; error = null
-    client.restGet("community_profiles_public?select=id,display_name,department,academic_level,bio,academic_interests&order=created_at.desc&limit=100")
-      .onSuccess { raw ->
-        val array = JSONArray(raw)
-        scholars = (0 until array.length()).mapNotNull { i ->
-          val row = array.optJSONObject(i) ?: return@mapNotNull null
-          Scholar(row.optString("id"), row.optString("display_name").ifBlank { "MedRad student" },
-            row.optString("department").ifBlank { "Department not specified" },
-            row.optString("academic_level").ifBlank { "Level not specified" },
-            row.optString("bio"), row.optString("academic_interests"))
+    loading = true
+    error = null
+    try {
+      val allRows = JSONArray()
+      var offset = 0
+      while (true) {
+        val raw = client.restGet("community_profiles_public?select=id,display_name,department,academic_level,bio,academic_interests&order=created_at.desc&limit=100&offset=$offset").getOrElse { throw it }
+        val page = JSONArray(raw)
+        for (i in 0 until page.length()) {
+          val row = page.optJSONObject(i) ?: continue
+          allRows.put(row)
         }
-      }.onFailure { error = "The community directory isn't available yet. Check your connection or try again later." }
-    loading = false
+        if (page.length() < 100) break
+        offset += page.length()
+      }
+      scholars = (0 until allRows.length()).mapNotNull { index ->
+        val row = allRows.optJSONObject(index) ?: return@mapNotNull null
+        Scholar(
+          row.optString("id"),
+          row.optString("display_name").ifBlank { "MedRad student" },
+          row.optString("department").ifBlank { "Department not specified" },
+          row.optString("academic_level").ifBlank { "Level not specified" },
+          row.optString("bio"),
+          row.optString("academic_interests")
+        )
+      }
+    } catch (_: Exception) {
+      error = "The community directory isn't available yet. Check your connection or try again later."
+    } finally {
+      loading = false
+    }
   }
   LaunchedEffect(Unit) { loadDirectory() }
   val filtered = scholars.filter { s ->
