@@ -311,8 +311,8 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                     OutlinedButton(onClick = { pdfPicker.launch(arrayOf("application/pdf")) }, enabled = !busy) { Text("PDF notes") }
                 }
                 attachmentUri?.let { selected ->
-                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
-                        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Card(shape = RoundedCornerShape(14.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MedicalTeal.copy(alpha = .35f)), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (attachmentKind == "image") AsyncImage(model = selected, contentDescription = "Selected image", modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)))
                             else Icon(if (attachmentKind == "document") Icons.Default.PictureAsPdf else Icons.Default.PlayArrow, null, tint = MedicalTeal, modifier = Modifier.size(32.dp))
                             Column(Modifier.weight(1f).padding(horizontal = 8.dp)) { Text(attachmentName, maxLines = 2, style = MaterialTheme.typography.bodySmall); Text(attachmentKind.uppercase(), color = MedicalTeal, style = MaterialTheme.typography.labelSmall) }
