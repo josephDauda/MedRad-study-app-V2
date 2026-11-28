@@ -286,7 +286,6 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                 }
             }
         }
-    }
         item {
             if (hasMore) {
                 OutlinedButton(onClick = { scope.launch { loadMore() } }, enabled = !loadingMore, modifier = Modifier.fillMaxWidth()) {
@@ -298,6 +297,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                 Text("You're all caught up", modifier = Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
             }
         }
+    }
     message?.let { Text(it, modifier = Modifier.padding(8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
