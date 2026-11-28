@@ -268,7 +268,9 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
         item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { FEED_TYPES.forEach { (key, label) -> FilterChip(type == key, { type = key }, label = { Text(label) }) } } }
         item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { FilterChip(category == "all", { category = "all" }, label = { Text("All categories") }); categories.forEach { c -> FilterChip(category == c.slug, { category = c.slug }, label = { Text(c.name) }) } } }
         item { Text("Community feed • ${posts.size} posts", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) }
-        if (loading) {\n            items(3) { FeedSkeletonCard() }\n        }
+        if (loading) {
+            items(3) { FeedSkeletonCard() }
+        }
         else if (error != null) item { Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(error!!, color = MaterialTheme.colorScheme.error); Button(onClick = { scope.launch { refresh() } }) { Text("Retry") } } }
         else if (posts.isEmpty()) item { EmptyCard("No posts here yet", "Try another filter or start the first discussion.") }
         else items(posts, key = { it.id }) { post ->
