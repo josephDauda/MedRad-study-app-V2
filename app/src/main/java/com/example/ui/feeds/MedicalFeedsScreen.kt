@@ -151,7 +151,12 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
         refresh()
     }
 
-    LaunchedEffect(category, discipline, type, sort, search) {\n        if ((sort == "following" || sort == "saved") && (bridgeToken.isNullOrBlank() || bridgeExpiry <= System.currentTimeMillis() + 15000)) {\n            loading = false\n            verifyDialog = true\n        } else refresh()\n    }
+    LaunchedEffect(category, discipline, type, sort, search) {
+        if ((sort == "following" || sort == "saved") && (bridgeToken.isNullOrBlank() || bridgeExpiry <= System.currentTimeMillis() + 15000)) {
+            loading = false
+            verifyDialog = true
+        } else refresh()
+    }
 
     if (verifyDialog) {
         var email by remember { mutableStateOf("") }
