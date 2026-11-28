@@ -8,6 +8,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.result.PickVisualMediaRequest
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -304,7 +305,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                 OutlinedTextField(resource, { resource = it }, label = { Text("HTTPS resource URL (optional)") }, modifier = Modifier.fillMaxWidth())
                 Text("Attachments", fontWeight = FontWeight.SemiBold)
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedButton(onClick = { imageVideoPicker.launch(ActivityResultContracts.PickVisualMedia.Request(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }, enabled = !busy) { Text("Photo / video") }
+                    OutlinedButton(onClick = { imageVideoPicker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }, enabled = !busy) { Text("Photo / video") }
                     OutlinedButton(onClick = { pdfPicker.launch(arrayOf("application/pdf")) }, enabled = !busy) { Text("PDF notes") }
                 }
                 attachmentUri?.let { selected ->
