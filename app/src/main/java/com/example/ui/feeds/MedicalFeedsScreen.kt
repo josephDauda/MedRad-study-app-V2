@@ -333,7 +333,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                             return@launch
                         }
                         val hashtagList = tags.split(Regex("[,\\s]+")).map { it.trim().removePrefix("#") }.filter { it.isNotBlank() }.distinct().take(10)
-                        val body = JSONObject().put("categorySlug", postCategory).put("postType", kind).put("visibility", "PUBLIC")
+                        val body = JSONObject().put("categorySlug", postCategory).put("postType", when (attachmentKind) { "image" -> "IMAGE"; "video" -> "VIDEO"; "document" -> "RESOURCE"; else -> kind }).put("visibility", "PUBLIC")
                             .put("title", title.trim()).put("content", content.trim())
                             .put("resourceUrl", resource.trim().takeIf { it.startsWith("https://") }).put("hashtags", JSONArray(hashtagList))
                         if (attachmentUri != null) {
