@@ -55,7 +55,7 @@ import java.util.Date
 import java.util.Locale
 
 private data class FeedCategory(val slug: String, val name: String, val discipline: String = "General")
-private data class FeedMedia(val url: String, val thumbnail: String?)
+private data class FeedMedia(val url: String, val thumbnail: String?, val mediaType: String, val filename: String)
 private data class FeedPost(val id: String, val author: String, val authorProfileId: String?, val isMine: Boolean, val followingAuthor: Boolean, val department: String, val level: String, val title: String, val content: String, val category: String, val createdAt: String, val reactions: Int, val comments: Int, val media: List<FeedMedia>, val resource: String?, val featured: Boolean, val liked: Boolean, val saved: Boolean)
 
 
@@ -121,7 +121,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
         val media = (0 until mediaJson.length()).mapNotNull { idx ->
             mediaJson.optJSONObject(idx)?.let { m ->
                 val link = m.optString("secureUrl", m.optString("secure_url"))
-                if (link.startsWith("https://")) FeedMedia(link, m.optString("thumbnailUrl", m.optString("thumbnail_url")).takeIf { it.startsWith("https://") }) else null
+                if (link.startsWith("https://")) FeedMedia(link, m.optString("thumbnailUrl", m.optString("thumbnail_url")).takeIf { it.startsWith("https://") }, m.optString("mediaType", m.optString("media_type", "image")), m.optString("originalFilename", m.optString("original_filename"))) else null
             }
         }
         return FeedPost(
@@ -401,7 +401,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                     Surface(color = MedicalTeal.copy(alpha = .1f), shape = RoundedCornerShape(8.dp)) { Text(post.category.replace('_', ' '), Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = MedicalTeal, style = MaterialTheme.typography.labelSmall) }
                     if (post.title.isNotBlank()) Text(post.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                     if (post.content.isNotBlank()) Text(post.content, style = MaterialTheme.typography.bodyMedium, lineHeight = 21.sp)
-                    post.media.forEach { m -> AsyncImage(model = m.thumbnail ?: m.url, contentDescription = "Post media", modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).clip(RoundedCornerShape(13.dp))) }
+                    post.media.forEach { m -> if (m.mediaType == "document") OutlinedButton(onClick = { uri.openUri(m.url) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Link, null); Spacer(Modifier.width(6.dp)); Text("Open PDF notes" + m.filename.takeIf { it.isNotBlank() }?.let { " • " + it }.orEmpty()) } else AsyncImage(model = m.thumbnail ?: m.url, contentDescription = "Post media", modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).clip(RoundedCornerShape(13.dp))) }
                     post.resource?.let { link -> OutlinedButton(onClick = { uri.openUri(link) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Link, null); Spacer(Modifier.width(5.dp)); Text("Open attached resource") } }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f))
                     Row(verticalAlignment = Alignment.CenterVertically) {
