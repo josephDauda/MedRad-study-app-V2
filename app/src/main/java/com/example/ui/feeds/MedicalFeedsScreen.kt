@@ -79,6 +79,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
     var message by remember { mutableStateOf<String?>(null) }
     var commentTarget by remember { mutableStateOf<FeedPost?>(null) }
     var commentList by remember { mutableStateOf(listOf<JSONObject>()) }
+    var commentLoading by remember { mutableStateOf(false) }
     var commentDraft by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
@@ -241,7 +242,9 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
             text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("Comments are connected to the shared community feed.")
                 OutlinedTextField(commentDraft, { commentDraft = it }, label = { Text("Comment") }, modifier = Modifier.fillMaxWidth())
-                commentList.forEach { c -> Text(c.optString("authorName", "Scholar") + ": " + c.optString("content"), style = MaterialTheme.typography.bodySmall) }
+                if (commentLoading) repeat(3) { FeedCommentSkeleton() }
+                else if (commentList.isEmpty()) Text("No comments yet. Start the discussion.", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.bodySmall)
+                else commentList.forEach { c -> Text(c.optString("authorName", "Scholar") + ": " + c.optString("content"), style = MaterialTheme.typography.bodySmall) }
             } },
             confirmButton = { TextButton(enabled = commentDraft.isNotBlank(), onClick = {
                 val p = commentTarget ?: return@TextButton
@@ -290,8 +293,16 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         TextButton(onClick = { scope.launch { try { invokeAction("toggle_feed_reaction", JSONObject().put("postId", post.id)) } catch (e: Exception) { message = e.message } }) { Icon(Icons.Default.Favorite, null, tint = MedicalTeal); Text(" Helpful ${post.reactions}") }
                         TextButton(onClick = {
-                            commentTarget = post; commentList = emptyList()
-                            scope.launch { runCatching { val res = client.medicalFeedsRequest("list_feed_comments", JSONObject().put("postId", post.id).put("limit", 20).put("offset", 0), bridgeToken); val j = JSONObject(res.getOrElse { throw it }); val arr = j.optJSONObject("data")?.optJSONArray("comments") ?: JSONArray(); commentList = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) } } }
+                            commentTarget = post; commentList = emptyList(); commentLoading = true
+                            scope.launch {
+                                try {
+                                    val res = client.medicalFeedsRequest("list_feed_comments", JSONObject().put("postId", post.id).put("limit", 20).put("offset", 0), bridgeToken)
+                                    val j = JSONObject(res.getOrElse { throw it })
+                                    val arr = j.optJSONObject("data")?.optJSONArray("comments") ?: JSONArray()
+                                    commentList = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                                } catch (e: Exception) { message = e.message ?: "Unable to load comments" }
+                                finally { commentLoading = false }
+                            }
                         }) { Icon(Icons.Default.Forum, null); Text(" ${post.comments}") }
                         IconButton(onClick = { scope.launch { try { invokeAction("toggle_feed_bookmark", JSONObject().put("postId", post.id)) } catch (e: Exception) { message = e.message } }) { Icon(if (post.saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder, "Save", tint = if (post.saved) MedicalTeal else MaterialTheme.colorScheme.onSurfaceVariant) }
                         IconButton(onClick = { runCatching { uri.openUri("https://medradstudyweb.vercel.app/community/feeds?post=${post.id}") } }) { Icon(Icons.Default.Share, "Share") }
@@ -371,5 +382,26 @@ private fun FeedSkeletonCard() {
                 Placeholder(Modifier.size(28.dp))
             }
         }
+    }
+}
+
+@Composable
+private fun FeedCommentSkeleton() {
+    val transition = rememberInfiniteTransition(label = "comment-skeleton")
+    val sweep by transition.animateFloat(
+        initialValue = -300f,
+        targetValue = 600f,
+        animationSpec = infiniteRepeatable(tween(1000, easing = LinearEasing), RepeatMode.Restart),
+        label = "comment-shimmer"
+    )
+    val base = MaterialTheme.colorScheme.surfaceVariant
+    val brush = Brush.linearGradient(
+        listOf(base.copy(alpha = 0.5f), base.copy(alpha = 0.85f), MaterialTheme.colorScheme.onSurface.copy(alpha = 0.1f)),
+        start = Offset(sweep, 0f),
+        end = Offset(sweep + 300f, 80f)
+    )
+    Column(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Box(Modifier.fillMaxWidth(0.35f).height(10.dp).clip(RoundedCornerShape(6.dp)).background(brush))
+        Box(Modifier.fillMaxWidth(0.92f).height(12.dp).clip(RoundedCornerShape(6.dp)).background(brush))
     }
 }
