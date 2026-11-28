@@ -60,7 +60,7 @@ private val FEED_TYPES = listOf("ALL" to "All", "TEXT" to "Text", "IMAGE" to "Im
 @Composable
 fun MedicalFeedsScreen(client: SupabaseClient) {
     var posts by remember { mutableStateOf(emptyList<FeedPost>()) }
-    var categories by remember { mutableStateOf(listOf(FeedCategory("general", "General")) }
+    var categories by remember { mutableStateOf(listOf(FeedCategory("general", "General"))) }
     var category by remember { mutableStateOf("all") }
     var discipline by remember { mutableStateOf("ALL") }
     var type by remember { mutableStateOf("ALL") }
