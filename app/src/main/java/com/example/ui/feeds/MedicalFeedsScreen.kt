@@ -397,6 +397,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
         else if (error != null) item { Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(error!!, color = MaterialTheme.colorScheme.error); Button(onClick = { scope.launch { refresh() } }) { Text("Retry") } } }
         else if (posts.isEmpty()) item { EmptyCard("No posts here yet", "Try another filter or start the first discussion.") }
         else items(posts, key = { it.id }) { post ->
+            var postMenuOpen by remember(post.id) { mutableStateOf(false) }
             Card(shape = RoundedCornerShape(20.dp), border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f)), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface), elevation = CardDefaults.cardElevation(1.dp)) {
                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
@@ -413,21 +414,49 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                     post.resource?.let { link -> OutlinedButton(onClick = { uri.openUri(link) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Link, null); Spacer(Modifier.width(5.dp)); Text("Open attached resource") } }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f))
                     Row(verticalAlignment = Alignment.CenterVertically) {
-                        TextButton(onClick = { scope.launch { try { invokeAction("toggle_feed_reaction", JSONObject().put("postId", post.id)) } catch (e: Exception) { message = e.message } }) { Icon(Icons.Default.Favorite, null, tint = MedicalTeal); Text(" Helpful ${post.reactions}") }
-                        TextButton(onClick = {
-                            commentTarget = post; commentList = emptyList(); commentLoading = true
-                            scope.launch {
-                                try {
-                                    val res = client.medicalFeedsRequest("list_feed_comments", JSONObject().put("postId", post.id).put("limit", 20).put("offset", 0), bridgeToken)
-                                    val j = JSONObject(res.getOrElse { throw it })
-                                    val arr = j.optJSONObject("data")?.optJSONArray("comments") ?: JSONArray()
-                                    commentList = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
-                                } catch (e: Exception) { message = e.message ?: "Unable to load comments" }
-                                finally { commentLoading = false }
+                        TextButton(
+                            onClick = {
+                                scope.launch {
+                                    try { invokeAction("toggle_feed_reaction", JSONObject().put("postId", post.id)) }
+                                    catch (e: Exception) { message = e.message }
+                                }
                             }
-                        }) { Icon(Icons.Default.Forum, null); Text(" ${post.comments}") }
-                        IconButton(onClick = { scope.launch { try { invokeAction("toggle_feed_bookmark", JSONObject().put("postId", post.id)) } catch (e: Exception) { message = e.message } }) { Icon(if (post.saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder, "Save", tint = if (post.saved) MedicalTeal else MaterialTheme.colorScheme.onSurfaceVariant) }
-                        IconButton(onClick = { runCatching { uri.openUri("https://medradstudyweb.vercel.app/community/feeds?post=${post.id}") } }) { Icon(Icons.Default.Share, "Share") }
+                        ) {
+                            Icon(Icons.Default.Favorite, null, tint = MedicalTeal)
+                            Text(" Helpful ${post.reactions}")
+                        }
+                        TextButton(
+                            onClick = {
+                                commentTarget = post
+                                commentList = emptyList()
+                                commentLoading = true
+                                scope.launch {
+                                    try {
+                                        val res = client.medicalFeedsRequest("list_feed_comments", JSONObject().put("postId", post.id).put("limit", 20).put("offset", 0), bridgeToken)
+                                        val j = JSONObject(res.getOrElse { throw it })
+                                        val arr = j.optJSONObject("data")?.optJSONArray("comments") ?: JSONArray()
+                                        commentList = (0 until arr.length()).mapNotNull { arr.optJSONObject(it) }
+                                    } catch (e: Exception) { message = e.message ?: "Unable to load comments" }
+                                    finally { commentLoading = false }
+                                }
+                            }
+                        ) {
+                            Icon(Icons.Default.Forum, null)
+                            Text(" ${post.comments}")
+                        }
+                        IconButton(
+                            onClick = {
+                                scope.launch {
+                                    try { invokeAction("toggle_feed_bookmark", JSONObject().put("postId", post.id)) }
+                                    catch (e: Exception) { message = e.message }
+                                }
+                            }
+                        ) {
+                            Icon(if (post.saved) Icons.Default.Bookmark else Icons.Default.BookmarkBorder, "Save", tint = if (post.saved) MedicalTeal else MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        IconButton(onClick = { runCatching { uri.openUri("https://medradstudyweb.vercel.app/community/feeds?post=${post.id}") } }) {
+                            Icon(Icons.Default.Share, "Share")
+                        }
                     }
                     Text(formatDate(post.createdAt), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall)
                 }
