@@ -339,7 +339,7 @@ private fun FeedSkeletonCard() {
     ) {
         Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Placeholder(Modifier.size(42.dp), CircleShape.let { RoundedCornerShape(50) })
+                Placeholder(Modifier.size(42.dp), RoundedCornerShape(50.dp))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
                     Placeholder(Modifier.fillMaxWidth(0.48f).height(14.dp))
                     Placeholder(Modifier.fillMaxWidth(0.32f).height(10.dp))
