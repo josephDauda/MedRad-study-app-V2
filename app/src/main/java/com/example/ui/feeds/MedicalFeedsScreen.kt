@@ -27,6 +27,8 @@ import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.filled.PictureAsPdf
 import androidx.compose.material.icons.filled.Bookmark
 import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Share
@@ -312,7 +314,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                     Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
                         Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
                             if (attachmentKind == "image") AsyncImage(model = selected, contentDescription = "Selected image", modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)))
-                            else Icon(Icons.Default.Link, null, tint = MedicalTeal, modifier = Modifier.size(32.dp))
+                            else Icon(if (attachmentKind == "document") Icons.Default.PictureAsPdf else Icons.Default.PlayArrow, null, tint = MedicalTeal, modifier = Modifier.size(32.dp))
                             Column(Modifier.weight(1f).padding(horizontal = 8.dp)) { Text(attachmentName, maxLines = 2, style = MaterialTheme.typography.bodySmall); Text(attachmentKind.uppercase(), color = MedicalTeal, style = MaterialTheme.typography.labelSmall) }
                             IconButton(onClick = { attachmentUri = null; attachmentKind = ""; attachmentName = "" }, enabled = !busy) { Icon(Icons.Default.Refresh, "Remove attachment") }
                         }
@@ -321,7 +323,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                 OutlinedTextField(tags, { tags = it }, label = { Text("Hashtags (optional)") }, modifier = Modifier.fillMaxWidth())
                 Text("Category", fontWeight = FontWeight.SemiBold)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) { categories.forEach { c -> FilterChip(postCategory == c.slug, { postCategory = c.slug }, label = { Text(c.name) }) } }
-                publishError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+                if (busy) {\n                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = MedicalTeal)\n                    Text(if (attachmentUri != null) "Uploading attachment and publishing…" else "Publishing…", style = MaterialTheme.typography.labelMedium, color = MedicalTeal)\n                }\n                publishError?.let { Text(it, color = if (it.startsWith("Uploading")) MedicalTeal else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             } },
             confirmButton = { Button(enabled = !busy && content.isNotBlank(), onClick = {
                 busy = true
@@ -345,7 +347,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                     } catch (e: Exception) { publishError = e.message ?: "Publishing failed" }
                     finally { busy = false }
                 }
-            }) { Text(if (busy) "Publishing…" else "Publish") } },
+            }) { Text(if (busy) "Please wait…" else "Publish") } },
             dismissButton = { TextButton(onClick = { composer = false }) { Text("Cancel") } }
         )
     }
@@ -402,7 +404,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                     Surface(color = MedicalTeal.copy(alpha = .1f), shape = RoundedCornerShape(8.dp)) { Text(post.category.replace('_', ' '), Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = MedicalTeal, style = MaterialTheme.typography.labelSmall) }
                     if (post.title.isNotBlank()) Text(post.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
                     if (post.content.isNotBlank()) Text(post.content, style = MaterialTheme.typography.bodyMedium, lineHeight = 21.sp)
-                    post.media.forEach { m -> if (m.mediaType == "document") OutlinedButton(onClick = { uri.openUri(m.url) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Link, null); Spacer(Modifier.width(6.dp)); Text("Open PDF notes" + m.filename.takeIf { it.isNotBlank() }?.let { " • " + it }.orEmpty()) } else AsyncImage(model = m.thumbnail ?: m.url, contentDescription = "Post media", modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).clip(RoundedCornerShape(13.dp))) }
+                    post.media.forEach { m -> if (m.mediaType == "document") Card(shape = RoundedCornerShape(13.dp), colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) { Row(Modifier.fillMaxWidth().padding(10.dp), verticalAlignment = Alignment.CenterVertically) { Icon(Icons.Default.PictureAsPdf, null, tint = MedicalTeal, modifier = Modifier.size(30.dp)); Column(Modifier.weight(1f).padding(horizontal = 8.dp)) { Text(m.filename.ifBlank { "Study document" }, fontWeight = FontWeight.SemiBold, maxLines = 2); Text("PDF / document", color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall) }; TextButton(onClick = { uri.openUri(m.url) }) { Text("Open") } } } else AsyncImage(model = m.thumbnail ?: m.url, contentDescription = if(m.mediaType == "video") "Video attachment thumbnail" else "Post image", modifier = Modifier.fillMaxWidth().heightIn(max = 320.dp).clip(RoundedCornerShape(13.dp))) }
                     post.resource?.let { link -> OutlinedButton(onClick = { uri.openUri(link) }, modifier = Modifier.fillMaxWidth()) { Icon(Icons.Default.Link, null); Spacer(Modifier.width(5.dp)); Text("Open attached resource") } }
                     HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = .5f))
                     Row(verticalAlignment = Alignment.CenterVertically) {
