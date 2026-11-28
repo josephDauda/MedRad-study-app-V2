@@ -65,6 +65,7 @@ private data class FeedPost(val id: String, val author: String, val authorProfil
 private suspend fun uploadComposerAttachment(client: SupabaseClient, context: android.content.Context, bridgeToken: String?, uri: Uri, kind: String): JSONObject {
     val resolver = context.contentResolver
     val mime = resolver.getType(uri) ?: when(kind) { "image" -> "image/jpeg"; "video" -> "video/mp4"; else -> "application/pdf" }
+    if ((kind == "image" && !mime.startsWith("image/")) || (kind == "video" && !mime.startsWith("video/")) || (kind == "document" && mime != "application/pdf")) throw IllegalArgumentException("Choose a supported image, video, or PDF file.")
     val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: throw IllegalStateException("Could not read selected attachment")
     val limit = when(kind) { "image" -> 5 * 1024 * 1024; "video" -> 25 * 1024 * 1024; else -> 10 * 1024 * 1024 }
     if (bytes.isEmpty() || bytes.size > limit) throw IllegalArgumentException("Attachment exceeds allowed size (" + (limit / (1024 * 1024)) + " MB maximum).")
