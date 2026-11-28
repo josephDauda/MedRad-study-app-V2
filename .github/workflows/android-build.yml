@@ -35,7 +35,15 @@ jobs:
             -validity 10000 \
             -dname "CN=Android Debug,O=Android,C=US"
       - name: Build and run unit tests
-        run: bash gradlew testDebugUnitTest assembleDebug
+        run: |
+          for attempt in 1 2 3; do
+            bash gradlew --no-configuration-cache testDebugUnitTest assembleDebug && exit 0
+            if [ "$attempt" -lt 3 ]; then
+              echo "Build attempt $attempt failed; retrying after Maven Central rate-limit cooldown..."
+              sleep 20
+            fi
+          done
+          exit 1
       - name: Upload debug APK
         uses: actions/upload-artifact@v4
         with:
