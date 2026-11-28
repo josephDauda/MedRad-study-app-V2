@@ -51,7 +51,7 @@ import java.util.Locale
 
 private data class FeedCategory(val slug: String, val name: String, val discipline: String = "General")
 private data class FeedMedia(val url: String, val thumbnail: String?)
-private data class FeedPost(val id: String, val author: String, val department: String, val level: String, val title: String, val content: String, val category: String, val createdAt: String, val reactions: Int, val comments: Int, val media: List<FeedMedia>, val resource: String?, val featured: Boolean, val liked: Boolean, val saved: Boolean)
+private data class FeedPost(val id: String, val author: String, val authorProfileId: String?, val isMine: Boolean, val followingAuthor: Boolean, val department: String, val level: String, val title: String, val content: String, val category: String, val createdAt: String, val reactions: Int, val comments: Int, val media: List<FeedMedia>, val resource: String?, val featured: Boolean, val liked: Boolean, val saved: Boolean)
 
 private val FEED_SORTS = listOf("for-you" to "For You", "latest" to "Latest", "trending" to "Trending", "following" to "Following", "saved" to "Saved")
 private val FEED_DISCIPLINES = listOf("ALL", "Medicine", "Pharmacy", "Dentistry", "Allied Health", "Academic")
