@@ -28,7 +28,7 @@ jobs:
             -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
       - name: Package app
         run: |
-          APP="ios/build/Build/Products/Debug-iphonesimulator/MedRadStudyApp.app"
+          APP="ios/build/Build/Products/Debug-iphonesimulator/MedRad Study.app"
           test -d "$APP"
           ditto -c -k --sequesterRsrc --keepParent "$APP" "MedRad-iOS-Simulator.app.zip"
       - uses: actions/upload-artifact@v4
