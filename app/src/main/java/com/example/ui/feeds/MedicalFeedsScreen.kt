@@ -94,6 +94,8 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
         }
         return FeedPost(
             p.optString("id"), p.optString("authorName", p.optString("author_name")).ifBlank { "Scholar" },
+            p.optString("authorProfileId", p.optString("author_profile_id")).takeIf { it.isNotBlank() },
+            p.optBoolean("isMine", p.optBoolean("is_mine")), p.optBoolean("viewerFollowsAuthor", p.optBoolean("viewer_follows_author")),
             p.optString("authorDepartment", p.optString("author_department")), p.optString("authorLevel", p.optString("author_level")),
             p.optString("title"), p.optString("content"), p.optString("categorySlug", p.optString("category_slug", "general")),
             p.optString("createdAt", p.optString("created_at")), p.optInt("reactionCount", p.optInt("reaction_count")),
@@ -282,6 +284,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Surface(shape = CircleShape, color = MedicalTeal.copy(alpha = .12f), modifier = Modifier.size(42.dp)) { Box(contentAlignment = Alignment.Center) { Text(post.author.split(" ").take(2).mapNotNull { it.firstOrNull() }.joinToString("").uppercase().take(2), fontWeight = FontWeight.Bold, color = MedicalTeal) } }
                         Column(Modifier.weight(1f).padding(start = 10.dp)) { Text(post.author, fontWeight = FontWeight.Bold); Text(listOf(post.department, post.level).filter { it.isNotBlank() }.joinToString(" • ").ifBlank { "MedRad community" }, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall) }
+                        if (!post.isMine && !post.authorProfileId.isNullOrBlank()) TextButton(onClick = { scope.launch { try { invokeAction("toggle_follow_author", JSONObject().put("targetProfileId", post.authorProfileId)) } catch (e: Exception) { message = e.message } } }, contentPadding = PaddingValues(horizontal = 5.dp)) { Text(if (post.followingAuthor) "Following" else "Follow", style = MaterialTheme.typography.labelMedium) }
                         if (post.featured) Surface(color = WarningAmber.copy(alpha = .12f), shape = RoundedCornerShape(8.dp)) { Text("FEATURED", Modifier.padding(6.dp), color = WarningAmber, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
                     }
                     Surface(color = MedicalTeal.copy(alpha = .1f), shape = RoundedCornerShape(8.dp)) { Text(post.category.replace('_', ' '), Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = MedicalTeal, style = MaterialTheme.typography.labelSmall) }
