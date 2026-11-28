@@ -6,6 +6,8 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
@@ -35,6 +37,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.platform.LocalUriHandler
+import androidx.compose.ui.platform.LocalContext
+import android.net.Uri
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,6 +57,29 @@ import java.util.Locale
 private data class FeedCategory(val slug: String, val name: String, val discipline: String = "General")
 private data class FeedMedia(val url: String, val thumbnail: String?)
 private data class FeedPost(val id: String, val author: String, val authorProfileId: String?, val isMine: Boolean, val followingAuthor: Boolean, val department: String, val level: String, val title: String, val content: String, val category: String, val createdAt: String, val reactions: Int, val comments: Int, val media: List<FeedMedia>, val resource: String?, val featured: Boolean, val liked: Boolean, val saved: Boolean)
+
+
+private suspend fun uploadComposerAttachment(client: SupabaseClient, context: android.content.Context, bridgeToken: String?, uri: Uri, kind: String): JSONObject {
+    val resolver = context.contentResolver
+    val mime = resolver.getType(uri) ?: when(kind) { "image" -> "image/jpeg"; "video" -> "video/mp4"; else -> "application/pdf" }
+    val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: throw IllegalStateException("Could not read selected attachment")
+    val limit = when(kind) { "image" -> 5 * 1024 * 1024; "video" -> 25 * 1024 * 1024; else -> 10 * 1024 * 1024 }
+    if (bytes.isEmpty() || bytes.size > limit) throw IllegalArgumentException("Attachment exceeds allowed size (" + (limit / (1024 * 1024)) + " MB maximum).")
+    val name = uri.lastPathSegment?.substringAfterLast('/')?.takeIf { it.isNotBlank() } ?: ("attachment." + if(kind == "image") "jpg" else if(kind == "video") "mp4" else "pdf")
+    val sigResult = client.medicalFeedsRequest("get_feed_cloudinary_signature", JSONObject().put("mediaKind", kind), bridgeToken)
+    val sigRoot = JSONObject(sigResult.getOrElse { throw it })
+    if (!sigRoot.optBoolean("ok")) throw IllegalStateException(sigRoot.optString("error", "Could not prepare media upload"))
+    val signature = sigRoot.optJSONObject("data") ?: throw IllegalStateException("Upload signature was missing")
+    val uploaded = JSONObject(client.uploadFeedMediaSigned(signature, bytes, name, mime).getOrElse { throw it })
+    val secureUrl = uploaded.optString("secure_url")
+    if (!secureUrl.startsWith("https://")) throw IllegalStateException("Cloud upload returned an invalid media URL")
+    val videoThumb = if(kind == "video") secureUrl.replace(Regex("\\\\.(mp4|mov|webm)(\\\\?.*)?$", RegexOption.IGNORE_CASE), ".jpg") else ""
+    return JSONObject().put("mediaType", kind).put("cloudinaryPublicId", uploaded.optString("public_id", signature.optString("publicId")))
+        .put("secureUrl", secureUrl).put("thumbnailUrl", videoThumb.takeIf { it.isNotBlank() })
+        .put("width", uploaded.optInt("width")).put("height", uploaded.optInt("height"))
+        .put("durationSeconds", uploaded.optDouble("duration", 0.0).takeIf { it > 0 })
+        .put("mimeType", mime).put("bytes", uploaded.optLong("bytes", bytes.size.toLong())).put("originalFilename", name).put("sortOrder", 0)
+}
 
 private val FEED_SORTS = listOf("for-you" to "For You", "latest" to "Latest", "trending" to "Trending", "following" to "Following", "saved" to "Saved")
 private val FEED_DISCIPLINES = listOf("ALL", "Medicine", "Pharmacy", "Dentistry", "Allied Health", "Academic")
@@ -87,6 +114,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
     var commentDraft by remember { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val uri = LocalUriHandler.current
+    val context = LocalContext.current
 
     fun mapPost(p: JSONObject): FeedPost {
         val mediaJson = p.optJSONArray("media") ?: JSONArray()
@@ -259,12 +287,36 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
         var kind by remember { mutableStateOf("TEXT") }
         var busy by remember { mutableStateOf(false) }
         var publishError by remember { mutableStateOf<String?>(null) }
+        var attachmentUri by remember { mutableStateOf<Uri?>(null) }
+        var attachmentKind by remember { mutableStateOf("") }
+        var attachmentName by remember { mutableStateOf("") }
+        val imageVideoPicker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { picked ->
+            if (picked != null) { attachmentUri = picked; attachmentKind = if ((context.contentResolver.getType(picked) ?: "").startsWith("video/")) "video" else "image"; attachmentName = picked.lastPathSegment?.substringAfterLast('/') ?: "Selected media" }
+        }
+        val pdfPicker = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { picked ->
+            if (picked != null) { attachmentUri = picked; attachmentKind = "document"; attachmentName = picked.lastPathSegment?.substringAfterLast('/') ?: "PDF document" }
+        }
         AlertDialog(onDismissRequest = { if (!busy) composer = false }, title = { Text("Create post") },
             text = { Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(9.dp)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) { listOf("TEXT", "RESOURCE").forEach { FilterChip(kind == it, { kind = it }, label = { Text(if (it == "TEXT") "Discussion" else "Resource") }) } }
                 OutlinedTextField(title, { title = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(content, { content = it }, label = { Text("Your post") }, minLines = 4, modifier = Modifier.fillMaxWidth())
                 OutlinedTextField(resource, { resource = it }, label = { Text("HTTPS resource URL (optional)") }, modifier = Modifier.fillMaxWidth())
+                Text("Attachments", fontWeight = FontWeight.SemiBold)
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { imageVideoPicker.launch(ActivityResultContracts.PickVisualMedia.Request(ActivityResultContracts.PickVisualMedia.ImageAndVideo)) }, enabled = !busy) { Text("Photo / video") }
+                    OutlinedButton(onClick = { pdfPicker.launch(arrayOf("application/pdf")) }, enabled = !busy) { Text("PDF notes") }
+                }
+                attachmentUri?.let { selected ->
+                    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant)) {
+                        Row(Modifier.fillMaxWidth().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            if (attachmentKind == "image") AsyncImage(model = selected, contentDescription = "Selected image", modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)))
+                            else Icon(Icons.Default.Link, null, tint = MedicalTeal, modifier = Modifier.size(32.dp))
+                            Column(Modifier.weight(1f).padding(horizontal = 8.dp)) { Text(attachmentName, maxLines = 2, style = MaterialTheme.typography.bodySmall); Text(attachmentKind.uppercase(), color = MedicalTeal, style = MaterialTheme.typography.labelSmall) }
+                            IconButton(onClick = { attachmentUri = null; attachmentKind = ""; attachmentName = "" }, enabled = !busy) { Icon(Icons.Default.Refresh, "Remove attachment") }
+                        }
+                    }
+                }
                 OutlinedTextField(tags, { tags = it }, label = { Text("Hashtags (optional)") }, modifier = Modifier.fillMaxWidth())
                 Text("Category", fontWeight = FontWeight.SemiBold)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) { categories.forEach { c -> FilterChip(postCategory == c.slug, { postCategory = c.slug }, label = { Text(c.name) }) } }
@@ -278,6 +330,11 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                         val body = JSONObject().put("categorySlug", postCategory).put("postType", kind).put("visibility", "PUBLIC")
                             .put("title", title.trim()).put("content", content.trim())
                             .put("resourceUrl", resource.trim().takeIf { it.startsWith("https://") }).put("hashtags", JSONArray(hashtagList))
+                        if (attachmentUri != null) {
+                            publishError = "Uploading attachment…"
+                            val mediaItem = uploadComposerAttachment(client, context, bridgeToken, attachmentUri!!, attachmentKind)
+                            body.put("media", JSONArray().put(mediaItem))
+                        }
                         invokeAction("create_feed_post", body); composer = false
                     } catch (e: Exception) { publishError = e.message ?: "Publishing failed" }
                     finally { busy = false }
