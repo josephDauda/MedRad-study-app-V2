@@ -324,7 +324,11 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                 OutlinedTextField(tags, { tags = it }, label = { Text("Hashtags (optional)") }, modifier = Modifier.fillMaxWidth())
                 Text("Category", fontWeight = FontWeight.SemiBold)
                 Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(5.dp)) { categories.forEach { c -> FilterChip(postCategory == c.slug, { postCategory = c.slug }, label = { Text(c.name) }) } }
-                if (busy) {\n                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = MedicalTeal)\n                    Text(if (attachmentUri != null) "Uploading attachment and publishing…" else "Publishing…", style = MaterialTheme.typography.labelMedium, color = MedicalTeal)\n                }\n                publishError?.let { Text(it, color = if (it.startsWith("Uploading")) MedicalTeal else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
+                if (busy) {
+                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = MedicalTeal)
+                    Text(if (attachmentUri != null) "Uploading attachment and publishing…" else "Publishing…", style = MaterialTheme.typography.labelMedium, color = MedicalTeal)
+                }
+                publishError?.let { Text(it, color = if (it.startsWith("Uploading")) MedicalTeal else MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             } },
             confirmButton = { Button(enabled = !busy && content.isNotBlank(), onClick = {
                 busy = true
