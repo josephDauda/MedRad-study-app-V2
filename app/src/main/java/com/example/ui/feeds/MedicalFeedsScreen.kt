@@ -1,6 +1,6 @@
 package com.example.ui.feeds
 
-import androidx.compose.foundation.background
+import androidx.compose.animation.core.LinearEasing\nimport androidx.compose.animation.core.RepeatMode\nimport androidx.compose.animation.core.animateFloat\nimport androidx.compose.animation.core.infiniteRepeatable\nimport androidx.compose.animation.core.rememberInfiniteTransition\nimport androidx.compose.animation.core.tween\nimport androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -261,7 +261,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
         item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { FEED_TYPES.forEach { (key, label) -> FilterChip(type == key, { type = key }, label = { Text(label) }) } } }
         item { Row(Modifier.horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) { FilterChip(category == "all", { category = "all" }, label = { Text("All categories") }); categories.forEach { c -> FilterChip(category == c.slug, { category = c.slug }, label = { Text(c.name) }) } } }
         item { Text("Community feed • ${posts.size} posts", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium) }
-        if (loading) item { Box(Modifier.fillMaxWidth().padding(32.dp), contentAlignment = Alignment.Center) { CircularProgressIndicator(color = MedicalTeal) } }
+        if (loading) {\n            items(3) { FeedSkeletonCard() }\n        }
         else if (error != null) item { Column(Modifier.fillMaxWidth().padding(20.dp), horizontalAlignment = Alignment.CenterHorizontally) { Text(error!!, color = MaterialTheme.colorScheme.error); Button(onClick = { scope.launch { refresh() } }) { Text("Retry") } } }
         else if (posts.isEmpty()) item { EmptyCard("No posts here yet", "Try another filter or start the first discussion.") }
         else items(posts, key = { it.id }) { post ->
@@ -315,3 +315,48 @@ private fun EmptyCard(title: String, subtitle: String) {
     Card(shape = RoundedCornerShape(18.dp)) { Column(Modifier.fillMaxWidth().padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Default.Forum, null, tint = MedicalTeal, modifier = Modifier.size(34.dp)); Text(title, fontWeight = FontWeight.SemiBold); Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant) } }
 }
 private fun formatDate(raw: String): String = try { SimpleDateFormat("MMM d • h:mm a", Locale.getDefault()).format(Date.from(java.time.Instant.parse(raw))) } catch (_: Exception) { raw.take(16).replace("T", " ") }
+@Composable
+private fun FeedSkeletonCard() {
+    val shimmer = rememberInfiniteTransition(label = "feed-skeleton")
+    val pulse by shimmer.animateFloat(
+        initialValue = 0.22f,
+        targetValue = 0.52f,
+        animationSpec = infiniteRepeatable(tween(850, easing = LinearEasing), RepeatMode.Reverse),
+        label = "skeleton-pulse"
+    )
+    val base = MaterialTheme.colorScheme.surfaceVariant
+    val highlight = MaterialTheme.colorScheme.onSurface.copy(alpha = pulse * 0.12f)
+    val brush = Brush.linearGradient(listOf(base.copy(alpha = 0.55f), base.copy(alpha = 0.95f), highlight, base.copy(alpha = 0.65f)))
+    @Composable fun Placeholder(modifier: Modifier, shape: RoundedCornerShape = RoundedCornerShape(8.dp)) {
+        Box(modifier.clip(shape).background(brush))
+    }
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant.copy(alpha = .4f)),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(0.dp)
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Placeholder(Modifier.size(42.dp), CircleShape.let { RoundedCornerShape(50) })
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Placeholder(Modifier.fillMaxWidth(0.48f).height(14.dp))
+                    Placeholder(Modifier.fillMaxWidth(0.32f).height(10.dp))
+                }
+                Placeholder(Modifier.width(46.dp).height(22.dp))
+            }
+            Placeholder(Modifier.fillMaxWidth(0.82f).height(17.dp))
+            Placeholder(Modifier.fillMaxWidth().height(12.dp))
+            Placeholder(Modifier.fillMaxWidth(0.93f).height(12.dp))
+            Placeholder(Modifier.fillMaxWidth(0.65f).height(12.dp))
+            Placeholder(Modifier.fillMaxWidth().height(150.dp), RoundedCornerShape(14.dp))
+            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                Placeholder(Modifier.width(66.dp).height(28.dp))
+                Placeholder(Modifier.width(66.dp).height(28.dp))
+                Spacer(Modifier.weight(1f))
+                Placeholder(Modifier.size(28.dp))
+            }
+        }
+    }
+}
