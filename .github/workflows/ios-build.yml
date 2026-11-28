@@ -1,0 +1,38 @@
+name: iOS build
+
+on:
+  push:
+    branches: [ios-parity-foundation]
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-build.yml"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install XcodeGen
+        run: brew install xcodegen
+      - name: Generate project
+        run: |
+          cd ios
+          xcodegen generate
+      - name: Build simulator app
+        run: |
+          cd ios
+          xcodebuild -project MedRadStudyApp.xcodeproj -scheme MedRadStudyApp \
+            -sdk iphonesimulator -configuration Debug \
+            -destination 'generic/platform=iOS Simulator' \
+            -derivedDataPath build CODE_SIGNING_ALLOWED=NO build
+      - name: Package app
+        run: |
+          APP="ios/build/Build/Products/Debug-iphonesimulator/MedRadStudyApp.app"
+          test -d "$APP"
+          ditto -c -k --sequesterRsrc --keepParent "$APP" "MedRad-iOS-Simulator.app.zip"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: medrad-ios-simulator-app
+          path: MedRad-iOS-Simulator.app.zip
+          retention-days: 30
