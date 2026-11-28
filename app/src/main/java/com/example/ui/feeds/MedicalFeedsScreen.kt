@@ -76,6 +76,9 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
     var verifyDialog by remember { mutableStateOf(false) }
     var pendingAction by remember { mutableStateOf<Pair<String, JSONObject>?>(null) }
     var composer by remember { mutableStateOf(false) }
+    var editingPost by remember { mutableStateOf<FeedPost?>(null) }
+    var deletingPost by remember { mutableStateOf<FeedPost?>(null) }
+    var reportingPost by remember { mutableStateOf<FeedPost?>(null) }
     var message by remember { mutableStateOf<String?>(null) }
     var commentTarget by remember { mutableStateOf<FeedPost?>(null) }
     var commentList by remember { mutableStateOf(listOf<JSONObject>()) }
@@ -202,6 +205,50 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
         )
     }
 
+    if (editingPost != null) {
+        val target = editingPost!!
+        var editTitle by remember(target.id) { mutableStateOf(target.title) }
+        var editContent by remember(target.id) { mutableStateOf(target.content) }
+        var editResource by remember(target.id) { mutableStateOf(target.resource.orEmpty()) }
+        var saving by remember { mutableStateOf(false) }
+        var editError by remember { mutableStateOf<String?>(null) }
+        AlertDialog(onDismissRequest = { if (!saving) editingPost = null }, title = { Text("Edit post") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(editTitle, { editTitle = it }, label = { Text("Title") }, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(editContent, { editContent = it }, label = { Text("Post") }, minLines = 3, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(editResource, { editResource = it }, label = { Text("HTTPS resource URL") }, modifier = Modifier.fillMaxWidth())
+                editError?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            } },
+            confirmButton = { Button(enabled = !saving && editContent.isNotBlank(), onClick = {
+                saving = true
+                scope.launch { try {
+                    invokeAction("update_feed_post", JSONObject().put("postId", target.id).put("title", editTitle.trim()).put("content", editContent.trim()).put("resourceUrl", editResource.trim().takeIf { it.startsWith("https://") }))
+                    editingPost = null
+                } catch (e: Exception) { editError = e.message ?: "Update failed" } finally { saving = false } }
+            }) { Text(if (saving) "Saving…" else "Save changes") } },
+            dismissButton = { TextButton(onClick = { editingPost = null }, enabled = !saving) { Text("Cancel") } }
+        )
+    }
+    if (deletingPost != null) {
+        val target = deletingPost!!
+        AlertDialog(onDismissRequest = { deletingPost = null }, title = { Text("Delete post?") }, text = { Text("This will permanently remove your post from the community feed.") },
+            confirmButton = { TextButton(onClick = { scope.launch { try { invokeAction("delete_feed_post", JSONObject().put("postId", target.id)); deletingPost = null } catch (e: Exception) { message = e.message } } }) { Text("Delete", color = MaterialTheme.colorScheme.error) } },
+            dismissButton = { TextButton(onClick = { deletingPost = null }) { Text("Cancel") } })
+    }
+    if (reportingPost != null) {
+        val target = reportingPost!!
+        var reportReason by remember(target.id) { mutableStateOf("SPAM") }
+        var reportDetails by remember(target.id) { mutableStateOf("") }
+        AlertDialog(onDismissRequest = { reportingPost = null }, title = { Text("Report post") },
+            text = { Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Tell moderators why this post needs review.")
+                listOf("SPAM", "HARASSMENT", "MISINFORMATION", "INAPPROPRIATE", "OTHER").forEach { reason -> FilterChip(reportReason == reason, { reportReason = reason }, label = { Text(reason.replace('_', ' ')) }) }
+                OutlinedTextField(reportDetails, { reportDetails = it }, label = { Text("Additional details (optional)") }, modifier = Modifier.fillMaxWidth())
+            } },
+            confirmButton = { Button(onClick = { scope.launch { try { invokeAction("report_feed_content", JSONObject().put("targetType", "POST").put("targetId", target.id).put("reason", reportReason).put("details", reportDetails.trim())); reportingPost = null } catch (e: Exception) { message = e.message } } }) { Text("Submit report") } },
+            dismissButton = { TextButton(onClick = { reportingPost = null }) { Text("Cancel") } })
+    }
+
     if (composer) {
         var title by remember { mutableStateOf("") }
         var content by remember { mutableStateOf("") }
@@ -285,7 +332,7 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
                         Surface(shape = CircleShape, color = MedicalTeal.copy(alpha = .12f), modifier = Modifier.size(42.dp)) { Box(contentAlignment = Alignment.Center) { Text(post.author.split(" ").take(2).mapNotNull { it.firstOrNull() }.joinToString("").uppercase().take(2), fontWeight = FontWeight.Bold, color = MedicalTeal) } }
                         Column(Modifier.weight(1f).padding(start = 10.dp)) { Text(post.author, fontWeight = FontWeight.Bold); Text(listOf(post.department, post.level).filter { it.isNotBlank() }.joinToString(" • ").ifBlank { "MedRad community" }, color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelSmall) }
                         if (!post.isMine && !post.authorProfileId.isNullOrBlank()) TextButton(onClick = { scope.launch { try { invokeAction("toggle_follow_author", JSONObject().put("targetProfileId", post.authorProfileId)) } catch (e: Exception) { message = e.message } } }, contentPadding = PaddingValues(horizontal = 5.dp)) { Text(if (post.followingAuthor) "Following" else "Follow", style = MaterialTheme.typography.labelMedium) }
-                        if (post.featured) Surface(color = WarningAmber.copy(alpha = .12f), shape = RoundedCornerShape(8.dp)) { Text("FEATURED", Modifier.padding(6.dp), color = WarningAmber, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }
+                        if (post.featured) Surface(color = WarningAmber.copy(alpha = .12f), shape = RoundedCornerShape(8.dp)) { Text("FEATURED", Modifier.padding(6.dp), color = WarningAmber, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold) }\n                        Box { IconButton(onClick = { postMenuOpen = true }) { Icon(Icons.Default.MoreVert, "Post options") }; DropdownMenu(expanded = postMenuOpen, onDismissRequest = { postMenuOpen = false }) { if (post.isMine) { DropdownMenuItem(text = { Text("Edit post") }, onClick = { postMenuOpen = false; editingPost = post }); DropdownMenuItem(text = { Text("Delete post", color = MaterialTheme.colorScheme.error) }, onClick = { postMenuOpen = false; deletingPost = post }) } else DropdownMenuItem(text = { Text("Report post") }, onClick = { postMenuOpen = false; reportingPost = post }) } }
                     }
                     Surface(color = MedicalTeal.copy(alpha = .1f), shape = RoundedCornerShape(8.dp)) { Text(post.category.replace('_', ' '), Modifier.padding(horizontal = 8.dp, vertical = 4.dp), color = MedicalTeal, style = MaterialTheme.typography.labelSmall) }
                     if (post.title.isNotBlank()) Text(post.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
