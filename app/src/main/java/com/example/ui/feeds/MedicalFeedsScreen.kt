@@ -60,6 +60,9 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
     var sort by remember { mutableStateOf("for-you") }
     var search by remember { mutableStateOf("") }
     var loading by remember { mutableStateOf(true) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var hasMore by remember { mutableStateOf(false) }
+    var nextOffset by remember { mutableIntStateOf(0) }
     var error by remember { mutableStateOf<String?>(null) }
     var bridgeToken by remember { mutableStateOf<String?>(null) }
     var bridgeExpiry by remember { mutableLongStateOf(0L) }
@@ -111,8 +114,28 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
             val data = json.optJSONObject("data") ?: JSONObject()
             val arr = data.optJSONArray("posts") ?: JSONArray()
             posts = (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let(::mapPost) }
+            hasMore = data.optBoolean("hasMore", false)
+            nextOffset = data.optInt("nextOffset", posts.size)
         } catch (e: Exception) { error = e.message?.take(200) ?: "Medical Feeds is temporarily unavailable." }
         finally { loading = false }
+    }
+
+    suspend fun loadMore() {
+        if (loadingMore || loading || !hasMore) return
+        loadingMore = true
+        try {
+            val payload = JSONObject().put("categorySlug", category).put("disciplineGroup", discipline).put("postType", type).put("sortBy", sort).put("searchQuery", search.trim()).put("limit", 20).put("offset", nextOffset)
+            val result = client.medicalFeedsRequest("list_feed_posts", payload, bridgeToken.takeIf { bridgeExpiry > System.currentTimeMillis() })
+            val json = JSONObject(result.getOrElse { throw it })
+            if (!json.optBoolean("ok")) throw IllegalStateException(json.optString("error", "Could not load more posts"))
+            val data = json.optJSONObject("data") ?: JSONObject()
+            val arr = data.optJSONArray("posts") ?: JSONArray()
+            val more = (0 until arr.length()).mapNotNull { arr.optJSONObject(it)?.let(::mapPost) }
+            posts = (posts + more).distinctBy { it.id }
+            hasMore = data.optBoolean("hasMore", false)
+            nextOffset = data.optInt("nextOffset", nextOffset + more.size)
+        } catch (e: Exception) { message = e.message ?: "Could not load more posts" }
+        finally { loadingMore = false }
     }
 
     suspend fun invokeAction(action: String, payload: JSONObject) {
@@ -264,6 +287,17 @@ fun MedicalFeedsScreen(client: SupabaseClient) {
             }
         }
     }
+        item {
+            if (hasMore) {
+                OutlinedButton(onClick = { scope.launch { loadMore() } }, enabled = !loadingMore, modifier = Modifier.fillMaxWidth()) {
+                    if (loadingMore) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(6.dp))
+                    Text(if (loadingMore) "Loading more…" else "Load more posts")
+                }
+            } else if (posts.isNotEmpty()) {
+                Text("You're all caught up", modifier = Modifier.fillMaxWidth().padding(12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant, style = MaterialTheme.typography.labelMedium)
+            }
+        }
     message?.let { Text(it, modifier = Modifier.padding(8.dp), color = MaterialTheme.colorScheme.onSurfaceVariant) }
 }
 
