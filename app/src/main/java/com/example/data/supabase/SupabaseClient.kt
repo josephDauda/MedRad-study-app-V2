@@ -501,4 +501,22 @@ class SupabaseClient(private val context: Context) {
       Result.failure(e)
     }
   }
+  /** Medical Feeds API requests use the existing Supabase Edge Function and never change auth state. */
+  suspend fun medicalFeedsRequest(action: String, payload: org.json.JSONObject = org.json.JSONObject(), bridgeToken: String? = null): Result<String> = withContext(Dispatchers.IO) {
+    try {
+      val baseUrl = SupabaseConfig.getUrl(context).trimEnd('/')
+      val apiKey = SupabaseConfig.getPublishableKey(context)
+      val requestPayload = org.json.JSONObject(payload.toString()).put("action", action)
+      val request = Request.Builder().url("$baseUrl/functions/v1/medical-feeds-api")
+        .post(requestPayload.toString().toRequestBody(jsonMediaType))
+        .addHeader("apikey", apiKey)
+        .addHeader("Authorization", "Bearer ${getAuthToken() ?: apiKey}")
+        .apply { if (!bridgeToken.isNullOrBlank()) addHeader("X-Feed-Session", bridgeToken) }
+        .build()
+      val response = okHttpClient.newCall(request).execute()
+      val body = response.body?.string().orEmpty()
+      if (response.isSuccessful) Result.success(body) else Result.failure(Exception("Medical Feeds API HTTP ${response.code}: $body"))
+    } catch (e: Exception) { Result.failure(e) }
+  }
+
 }
