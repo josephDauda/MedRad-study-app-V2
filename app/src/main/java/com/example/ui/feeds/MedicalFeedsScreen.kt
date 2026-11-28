@@ -73,7 +73,7 @@ private suspend fun uploadComposerAttachment(client: SupabaseClient, context: an
     val uploaded = JSONObject(client.uploadFeedMediaSigned(signature, bytes, name, mime).getOrElse { throw it })
     val secureUrl = uploaded.optString("secure_url")
     if (!secureUrl.startsWith("https://")) throw IllegalStateException("Cloud upload returned an invalid media URL")
-        val videoThumb = if(kind == "video") secureUrl.replace(Regex("\\\\.(mp4|mov|webm)(\\\\?.*)?$", RegexOption.IGNORE_CASE), ".jpg") else ""
+            val videoThumb = if(kind == "video") secureUrl.replace(Regex("\\.(mp4|mov|webm)(\\?.*)?$", RegexOption.IGNORE_CASE), ".jpg") else ""
     return JSONObject().put("mediaType", kind).put("cloudinaryPublicId", uploaded.optString("public_id", signature.optString("publicId")))
         .put("secureUrl", secureUrl).put("thumbnailUrl", videoThumb.takeIf { it.isNotBlank() })
         .put("width", uploaded.optInt("width")).put("height", uploaded.optInt("height"))
