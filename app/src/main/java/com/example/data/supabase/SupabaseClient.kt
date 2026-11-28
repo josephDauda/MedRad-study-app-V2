@@ -519,4 +519,26 @@ class SupabaseClient(private val context: Context) {
     } catch (e: Exception) { Result.failure(e) }
   }
 
+  suspend fun uploadFeedMediaSigned(signature: org.json.JSONObject, bytes: ByteArray, filename: String, mimeType: String): Result<String> = withContext(Dispatchers.IO) {
+    try {
+      val uploadUrl = signature.optString("uploadUrl")
+      if (!uploadUrl.startsWith("https://api.cloudinary.com/")) return@withContext Result.failure(Exception("Invalid Cloudinary upload endpoint"))
+      val form = okhttp3.MultipartBody.Builder().setType(okhttp3.MultipartBody.FORM)
+        .addFormDataPart("file", filename, bytes.toRequestBody((mimeType.ifBlank { "application/octet-stream" }).toMediaType()))
+        .addFormDataPart("api_key", signature.optString("apiKey"))
+        .addFormDataPart("timestamp", signature.optString("timestamp"))
+        .addFormDataPart("signature", signature.optString("signature"))
+        .addFormDataPart("folder", signature.optString("folder"))
+        .addFormDataPart("public_id", signature.optString("publicId"))
+        .addFormDataPart("overwrite", if (signature.optBoolean("overwrite")) "true" else "false")
+        .build()
+      val request = Request.Builder().url(uploadUrl).post(form).build()
+      okHttpClient.newCall(request).execute().use { response ->
+        val body = response.body?.string().orEmpty()
+        if (!response.isSuccessful) Result.failure(Exception("Media upload failed (HTTP ${response.code}): ${body.take(180)}"))
+        else Result.success(body)
+      }
+    } catch (e: Exception) { Result.failure(e) }
+  }
+
 }
