@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.BookmarkBorder
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -318,15 +319,19 @@ private fun formatDate(raw: String): String = try { SimpleDateFormat("MMM d • 
 @Composable
 private fun FeedSkeletonCard() {
     val shimmer = rememberInfiniteTransition(label = "feed-skeleton")
-    val pulse by shimmer.animateFloat(
-        initialValue = 0.22f,
-        targetValue = 0.52f,
-        animationSpec = infiniteRepeatable(tween(850, easing = LinearEasing), RepeatMode.Reverse),
-        label = "skeleton-pulse"
+    val shimmerOffset by shimmer.animateFloat(
+        initialValue = -500f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart),
+        label = "skeleton-shimmer"
     )
     val base = MaterialTheme.colorScheme.surfaceVariant
-    val highlight = MaterialTheme.colorScheme.onSurface.copy(alpha = pulse * 0.12f)
-    val brush = Brush.linearGradient(listOf(base.copy(alpha = 0.55f), base.copy(alpha = 0.95f), highlight, base.copy(alpha = 0.65f)))
+    val highlight = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.13f)
+    val brush = Brush.linearGradient(
+        colors = listOf(base.copy(alpha = 0.55f), base.copy(alpha = 0.9f), highlight, base.copy(alpha = 0.65f)),
+        start = Offset(shimmerOffset, 0f),
+        end = Offset(shimmerOffset + 480f, 480f)
+    )
     @Composable fun Placeholder(modifier: Modifier, shape: RoundedCornerShape = RoundedCornerShape(8.dp)) {
         Box(modifier.clip(shape).background(brush))
     }
